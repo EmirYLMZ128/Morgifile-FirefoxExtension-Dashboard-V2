@@ -186,7 +186,7 @@ async function setupModalLogic(shadow, host, imgUrl) {
     // In the future, this should be identified using a dedicated flag
     // Or use category metadata (e.g. system, visible flags) instead of a hardcoded name.
     if (cat.name === "Uncategorized Favorites") {
-      return; 
+      return;
     }
 
     const div = document.createElement("div");
@@ -288,12 +288,12 @@ async function loadCategories() {
     categoryCache = data.categories;
   } catch {
 
-    categoryCache = [{ name: "Fallback"}];
+    categoryCache = [{ name: "Fallback" }];
 
   }
 
   return categoryCache;
-} 
+}
 
 // =====================
 // DUPLICATE CHECK (LOCAL)
@@ -304,24 +304,41 @@ async function loadCategories() {
 // If an image is removed from the dashboard, this cache is not synced.
 // This may be improved in future versions. 
 
-function isImageAlreadySaved(url) {
-  return new Promise((resolve) => {
+async function isImageAlreadySaved(url) {
+  const list = await new Promise((resolve) => {
     chrome.storage.local.get(["savedImages"], (res) => {
-      const list = res.savedImages || [];
-      resolve(list.includes(url));
+      resolve(res.savedImages || []);
     });
   });
+
+  // Not cached → not duplicate
+  if (!list.includes(url)) return false;
+
+  // Validate with server
+  try {
+    const res = await fetch(
+      `http://127.0.0.1:8000/check-image?url=${encodeURIComponent(url)}`
+    );
+
+    if (!res.ok) throw new Error();
+
+    const data = await res.json();
+
+    // If server says image doesn't exist → remove stale cache
+    if (!data.exists) {
+      const updated = list.filter((u) => u !== url);
+      chrome.storage.local.set({ savedImages: updated });
+      return false;
+    }
+
+    return true;
+
+  } catch (err) {
+    console.warn("Server validation failed, using cache fallback", err);
+    return true; // fallback to cache if server down
+  }
 }
 
-function markImageAsSaved(url) {
-  chrome.storage.local.get(["savedImages"], (res) => {
-    const list = res.savedImages || [];
-    if (!list.includes(url)) {
-      list.push(url);
-      chrome.storage.local.set({ savedImages: list });
-    }
-  });
-}
 
 // =====================
 // IMAGE FINDER

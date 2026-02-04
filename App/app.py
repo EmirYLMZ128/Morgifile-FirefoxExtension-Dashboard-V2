@@ -688,6 +688,28 @@ async def proxy_image(url: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # =====================
+# IMAGE EXISTENCE CHECK (for extension validation)
+# =====================
+@app.get("/check-image")
+async def check_image(url: str):
+    """
+    Allows extension to verify if an image URL still exists.
+    """
+
+    async with db_lock:
+        images = read_db()
+
+        for img in images:
+            if img.get("originalUrl") == url:
+                # If in trash, treat as non-existent
+                if img.get("isDeleted"):
+                    return {"exists": False}
+                return {"exists": True}
+
+    return {"exists": False}
+
+
+# =====================
 # DEV ENTRY
 # =====================
 if __name__ == "__main__":
