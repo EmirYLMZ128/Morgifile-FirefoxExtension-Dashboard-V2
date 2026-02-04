@@ -222,7 +222,7 @@ async function handleSave(btn, shadow, host, imgUrl) {
   // 🔒 DUPLICATE CHECK (SERVER'A GİTMEDEN)
   const exists = await isImageAlreadySaved(imgUrl);
   if (exists) {
-    showInlineMessage("⚠️ This image has already been added to your archive");
+    showInlineMessage("⚠️ This image is already archived. If it’s not visible, it might be in the trash.");
     return;
   }
 
@@ -311,20 +311,16 @@ async function isImageAlreadySaved(url) {
     });
   });
 
-  // Not cached → not duplicate
   if (!list.includes(url)) return false;
 
-  // Validate with server
   try {
     const res = await fetch(
       `http://127.0.0.1:8000/check-image?url=${encodeURIComponent(url)}`
     );
 
     if (!res.ok) throw new Error();
-
     const data = await res.json();
 
-    // If server says image doesn't exist → remove stale cache
     if (!data.exists) {
       const updated = list.filter((u) => u !== url);
       chrome.storage.local.set({ savedImages: updated });
@@ -332,11 +328,19 @@ async function isImageAlreadySaved(url) {
     }
 
     return true;
-
-  } catch (err) {
-    console.warn("Server validation failed, using cache fallback", err);
-    return true; // fallback to cache if server down
+  } catch {
+    return true; // fallback
   }
+}
+
+function markImageAsSaved(url) {
+  chrome.storage.local.get(["savedImages"], (res) => {
+    const list = res.savedImages || [];
+    if (!list.includes(url)) {
+      list.push(url);
+      chrome.storage.local.set({ savedImages: list });
+    }
+  });
 }
 
 
