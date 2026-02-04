@@ -702,8 +702,8 @@ async def check_image(url: str):
         for img in images:
             if img.get("originalUrl") == url:
                 # If in trash, treat as non-existent
-                if img.get("isDeleted"):
-                    return {"exists": False}
+                #if img.get("isDeleted"):
+                #   return {"exists": False}
                 return {"exists": True}
 
     return {"exists": False}
