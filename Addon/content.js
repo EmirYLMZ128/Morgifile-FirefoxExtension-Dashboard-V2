@@ -305,13 +305,14 @@ async function loadCategories() {
 // This may be improved in future versions. 
 
 async function isImageAlreadySaved(url) {
+  const safeurl = normalizeUrl(url);
   const list = await new Promise((resolve) => {
     chrome.storage.local.get(["savedImages"], (res) => {
       resolve(res.savedImages || []);
     });
   });
 
-  if (!list.includes(url)) return false;
+  if (!list.includes(safeurl)) return false;
 
   try {
     const res = await fetch(
@@ -322,7 +323,7 @@ async function isImageAlreadySaved(url) {
     const data = await res.json();
 
     if (!data.exists) {
-      const updated = list.filter((u) => u !== url);
+      const updated = list.filter((u) => u !== safeurl);
       chrome.storage.local.set({ savedImages: updated });
       return false;
     }
@@ -334,15 +335,21 @@ async function isImageAlreadySaved(url) {
 }
 
 function markImageAsSaved(url) {
+  const incomingSafe = normalizeUrl(url);
   chrome.storage.local.get(["savedImages"], (res) => {
     const list = res.savedImages || [];
-    if (!list.includes(url)) {
-      list.push(url);
+    if (!list.includes(incomingSafe)) {
+      list.push(incomingSafe);
       chrome.storage.local.set({ savedImages: list });
     }
   });
 }
 
+
+//
+function normalizeUrl(url) {
+  return url.split("?")[0];
+}
 
 // =====================
 // IMAGE FINDER
