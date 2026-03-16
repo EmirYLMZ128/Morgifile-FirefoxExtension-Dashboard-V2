@@ -185,8 +185,12 @@ init_categories()
 # =====================
 @app.on_event("startup")
 async def startup_event():
-    # Uygulama açıldığında bir kez kontrol et
-    check_images_health()
+    # İşlemi arka plana atar, sunucu anında başlar ve 8000 portu açılır
+    asyncio.create_task(run_health_check_background())
+
+async def run_health_check_background():
+    # Senkron olan request işlemini thread içinde çalıştırarak kilitlenmeyi önleriz
+    await asyncio.to_thread(check_images_health)
 
 
 @app.post("/images/{img_id}/verify-and-shield")
@@ -328,6 +332,12 @@ async def add_category(data: CategoryCreateSchema):
     categories.append(new_cat)
 
     write_categories({ "categories": categories })
+
+    # 🚀 İŞTE EKSİK OLAN SİHİRLİ KOD BURASI: Dashboard'a canlı yayın yapıyoruz!
+    await manager.broadcast({
+        "type": "CATEGORIES_UPDATED",
+        "payload": categories
+    })
 
     return new_cat
 
@@ -606,14 +616,17 @@ async def move_image_to_trash(image_id: str):
         return { "status": "trashed" }
 
 
-
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+    await manager.connect(websocket)  # Bağlantıyı kabul et
+    print("✅ WS connected")
+    
     try:
         while True:
-            await websocket.receive_text()  # ping için
-    except:
+            # İstemciden gelen ping'leri dinle
+            msg = await websocket.receive_text()
+    except Exception as e:
+        print("❌ WS disconnected:", e)
         manager.disconnect(websocket)
 
 @app.get("/safe-file")

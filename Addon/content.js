@@ -63,10 +63,11 @@ function createShadowHost(id) {
     if (e.target === overlay) host.remove();
   });
 
-  const style = document.createElement("style");
-  style.textContent = STYLES;
+  const link = document.createElement("link");
+  link.setAttribute("rel", "stylesheet");
+  link.setAttribute("href", chrome.runtime.getURL("modal/style.css"));
 
-  shadow.append(style, overlay);
+  shadow.append(link, overlay);
   return { host, shadow, overlay };
 }
 
@@ -118,7 +119,7 @@ function showInitialPicker(images) {
 // =====================
 async function showCategoryModal(imgUrl) {
 
-  // 🚀 THIS IS CRITICAL: At each launch, forget the old list so a fresh one can be drawn up.
+  //THIS IS CRITICAL: At each launch, forget the old list so a fresh one can be drawn up.
   categoryCache = null;
 
   const { host, shadow, overlay } = createShadowHost("morgi-main-host");
@@ -180,14 +181,108 @@ async function setupModalLogic(shadow, host, imgUrl) {
   };
 
   const categories = await loadCategories();
-  categories.forEach((cat) => {
-    // This is a system-reserved fallback category.
-    // Currently filtered by name.
-    // In the future, this should be identified using a dedicated flag
-    // Or use category metadata (e.g. system, visible flags) instead of a hardcoded name.
-    if (cat.name === "Uncategorized Favorites") {
-      return;
+  const createCatWrapper = document.createElement("div");
+  createCatWrapper.style.cssText = "padding: 10px; display: none; gap: 8px; border-bottom: 1px solid #2a2a2a; background: #252525;";
+  createCatWrapper.innerHTML = `
+    <input type="text" id="new-cat-input" placeholder="Category name..." style="flex:1; background:#121212; border:1px solid #333; color:#eee; padding:8px; border-radius:6px; outline:none; font-size:13px; font-family:inherit;">
+    <button id="new-cat-submit" style="width:auto; padding:8px 12px; background:#6366f1; color:#fff; border-radius:6px; font-size:13px; cursor:pointer; border:none; transition:0.2s;">Add</button>
+  `;
+  
+  // Prevent menu from closing on wrapper click
+  createCatWrapper.onclick = (e) => e.stopPropagation();
+
+  const submitBtn = createCatWrapper.querySelector("#new-cat-submit");
+  const inputEl = createCatWrapper.querySelector("#new-cat-input");
+
+submitBtn.onclick = async (e) => {
+    e.stopPropagation(); 
+    const newCatName = inputEl.value.trim();
+    
+    if (!newCatName) return;
+
+    // 1. CRITICAL CHECK: Ensure image is not already saved before creating a category!
+    trigger.innerText = "⏳ Checking...";
+    const imageExists = await isImageAlreadySaved(imgUrl);
+    
+    if (imageExists) {
+      showInlineMessage("⚠️ This image is already archived. Category creation aborted.");
+      
+      // Clean up UI, close menu, and halt the process completely
+      optionsMenu.classList.remove("show");
+      createCatWrapper.style.display = "none";
+      newCatBtn.style.display = "block";
+      inputEl.value = "";
+      trigger.innerText = "Select a category...";
+      return; // IMPORTANT: Prevents executing the lines below and creating a category on the server
     }
+
+    // 2. SMART CHECK: Does the category already exist?
+    const existingCategory = categories.find(
+      cat => cat.name.toLowerCase() === newCatName.toLowerCase()
+    );
+
+    if (existingCategory) {
+      trigger.innerText = existingCategory.name;
+      btn.innerText = `💾 Save On ${existingCategory.name}`;
+      btn.classList.add("active");
+      btn.dataset.category = existingCategory.name;
+      
+      optionsMenu.classList.remove("show");
+      createCatWrapper.style.display = "none";
+      newCatBtn.style.display = "block";
+      inputEl.value = "";
+      return; 
+    }
+
+    // 3. IF NOT: Create the new category on the server
+    trigger.innerText = "⏳ Creating...";
+    optionsMenu.classList.remove("show"); 
+
+    try {
+      const res = await fetch("http://127.0.0.1:8000/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newCatName })
+      });
+
+      if (res.ok) {
+        const createdCat = await res.json();
+        trigger.innerText = createdCat.name;
+        btn.innerText = `💾 Save On ${createdCat.name}`;
+        btn.classList.add("active");
+        btn.dataset.category = createdCat.name;
+        categoryCache = null; 
+      } else {
+        trigger.innerText = "⚠️ Error!";
+        setTimeout(() => { trigger.innerText = "Select a category..."; }, 2000);
+      }
+    } catch (err) {
+      trigger.innerText = "📡 Connection Error";
+      setTimeout(() => { trigger.innerText = "Select a category..."; }, 2000);
+    }
+    
+    createCatWrapper.style.display = "none";
+    newCatBtn.style.display = "block";
+    inputEl.value = "";
+  };
+  // Create New Category
+  const newCatBtn = document.createElement("div");
+  newCatBtn.className = "custom-option";
+  newCatBtn.innerHTML = `<strong style="color: #6366f1;">+ Create New Category</strong>`;
+  
+  newCatBtn.onclick = (e) => {
+    e.stopPropagation();
+    newCatBtn.style.display = "none";
+    createCatWrapper.style.display = "flex";
+    inputEl.focus();
+  };
+
+  optionsMenu.appendChild(createCatWrapper);
+  optionsMenu.appendChild(newCatBtn);
+
+  // LIST EXISTING CATEGORIES
+  categories.forEach((cat) => {
+    if (cat.name === "Uncategorized Favorites") return;
 
     const div = document.createElement("div");
     div.className = "custom-option";
@@ -196,21 +291,29 @@ async function setupModalLogic(shadow, host, imgUrl) {
       e.stopPropagation();
       trigger.innerText = cat.name;
       optionsMenu.classList.remove("show");
+      
+      createCatWrapper.style.display = "none";
+      newCatBtn.style.display = "block";
+      inputEl.value = "";
+
       btn.innerText = `💾 Save On ${cat.name}`;
       btn.classList.add("active");
       btn.dataset.category = cat.name;
     };
     optionsMenu.appendChild(div);
   });
-
+ 
   trigger.onclick = (e) => {
     e.stopPropagation();
     optionsMenu.classList.toggle("show");
   };
 
-  shadow.addEventListener("click", () =>
-    optionsMenu.classList.remove("show")
-  );
+  shadow.addEventListener("click", () => {
+    optionsMenu.classList.remove("show");
+    createCatWrapper.style.display = "none";
+    newCatBtn.style.display = "block";
+    if(inputEl) inputEl.value = "";
+  });
 
   btn.onclick = () => handleSave(btn, shadow, host, imgUrl);
 }
@@ -219,7 +322,7 @@ async function setupModalLogic(shadow, host, imgUrl) {
 // SAVE HANDLER
 // =====================
 async function handleSave(btn, shadow, host, imgUrl) {
-  // 🔒 DUPLICATE CHECK (SERVER'A GİTMEDEN)
+  // 🔒 DUPLICATE CHECK (BEFORE HITTING THE SERVER)
   const exists = await isImageAlreadySaved(imgUrl);
   if (exists) {
     showInlineMessage("⚠️ This image is already archived. If it’s not visible, it might be in the trash.");
@@ -345,8 +448,6 @@ function markImageAsSaved(url) {
   });
 }
 
-
-//
 function normalizeUrl(url) {
   return url.split("?")[0];
 }
@@ -384,31 +485,6 @@ function findBestImages(x, y) {
   );
 }
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.action !== "LOG_NEAREST_IMAGE") return;
-  document.addEventListener(
-    "contextmenu",
-    (e) => {
-      lastX = e.clientX;
-      lastY = e.clientY;
-    },
-    true
-  );
-  const images = findBestImages(lastX, lastY);
-
-  if (!images.length) {
-    showInlineMessage("Image not found");
-    return;
-  }
-
-  // Modal / picker / save flow starts here
-  if (images.length === 1) {
-    showCategoryModal(images[0].url);
-  } else {
-    showInitialPicker(images);
-  }
-});
-
 function showInlineMessage(text) {
   const el = document.createElement("div");
   el.textContent = text;
@@ -429,230 +505,3 @@ function showInlineMessage(text) {
   setTimeout(() => el.remove(), 2000);
 }
 
-
-// =====================
-// STYLES (UNCHANGED)
-// =====================
-
-// they can be moved to a separate file (e.g., modal.css) and 
-// injected via the content script.
-const STYLES = `
-
-.custom-options {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: #252525;
-    border: 1px solid #333;
-    border-radius: 10px;
-    display: none;
-    z-index: 100;
-    box-shadow: 0 10px 20px rgba(0,0,0,0.5);
-    overflow: hidden; 
-}
-
-.custom-option:first-child {
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
-}
-
-.custom-option:last-child {
-    border-bottom-left-radius: 10px;
-    border-bottom-right-radius: 10px;
-    border-bottom: none;
-}
-
-.custom-options {
-    max-height: 250px;
-    overflow-y: auto;
-}
-
-.radar-overlay {
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.85);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    backdrop-filter: blur(8px);
-    font-family: sans-serif;
-}
-
-.picker-modal {
-    background: #1e1e1e;
-    padding: 30px;
-    border-radius: 20px;
-    width: 90vw;
-    max-width: 1000px;
-    max-height: 85vh;
-    border: 1px solid #333;
-    display: flex;
-    flex-direction: column;
-}
-
-.grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 20px;
-    overflow-y: auto;
-    padding: 10px;
-    margin-top: 20px;
-}
-
-.grid-item {
-    cursor: pointer;
-    border: 2px solid #333;
-    padding: 15px;
-    border-radius: 15px;
-    background: #252525;
-    transition: 0.3s;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.grid-item:hover {
-    border-color: #6366f1;
-    transform: scale(1.02);
-}
-
-.grid-item img {
-    width: 100%;
-    height: 250px;
-    object-fit: contain;
-    border-radius: 8px;
-    margin-bottom: 10px;
-}
-
-.img-resolution {
-    background: #121212;
-    color: #6366f1;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: bold;
-    border: 1px solid #333;
-}
-
-.modal {
-    display: flex;
-    background: #121212;
-    width: 90vw;
-    max-width: 900px;
-    height: 600px;
-    border-radius: 20px;
-    overflow: visible;
-    box-shadow: 0 30px 60px rgba(0,0,0,0.5);
-    border: 1px solid #2a2a2a;
-    color: white;
-}
-
-.left {
-    border-radius: 20px 0px 0px 20px;
-    flex: 1.2;
-    background: #000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-}
-
-.left img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-}
-
-.right {
-    flex: 1;
-    padding: 40px;
-    border-radius: 0px 20px 20px 0px;
-    background: #1e1e1e;
-    border-left: 1px solid #2a2a2a;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-}
-
-.custom-select-wrapper {
-    position: relative;
-    overflow: visible;
-    margin-top: 10px;
-}
-
-.custom-select {
-    background: #2a2a2a;
-    color: #eee;
-    padding: 14px;
-    border-radius: 10px;
-    border: 1px solid #333;
-    cursor: pointer;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.custom-options.show {
-    display: block;
-}
-
-.custom-option {
-    padding: 12px 15px;
-    cursor: pointer;
-    border-bottom: 1px solid #2a2a2a;
-}
-
-.custom-option:hover {
-    background: #6366f1;
-    color: white;
-}
-
-button {
-    width: 100%;
-    padding: 18px;
-    border-radius: 12px;
-    border: none;
-    background: #2a2a2a;
-    color: #555;
-    font-size: 16px;
-    font-weight: bold;
-    cursor: not-allowed;
-    transition: 0.3s;
-}
-
-button.active {
-    background: #6366f1;
-    color: white;
-    cursor: pointer;
-}
-
-label {
-    color: #777;
-    font-size: 11px;
-    text-transform: uppercase;
-    font-weight: bold;
-}
-
-.info-val {
-    color: #bbb;
-    margin: 8px 0 25px 0;
-}
-
-.info-row {
-    margin-bottom: 20px;
-}
-
-.info-link {
-    color: #6366f1;
-    text-decoration: none;
-    font-size: 13px;
-    word-break: break-all;
-    display: block;
-    margin-top: 5px;
-}
-
-h2 {
-    margin: 0;
-}
-`;

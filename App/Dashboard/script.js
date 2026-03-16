@@ -77,7 +77,9 @@ function initSocket() {
 
 
     switch (data.type) {
-      case "NEW_IMAGE": onNewImage(data.payload); break;
+      case "NEW_IMAGE":
+      loadInitialData();
+      break;
       case "CATEGORIES_UPDATED":
         categoryCache = data.payload;
         renderSidebarCategories(categoryCache);
@@ -113,14 +115,9 @@ function onFavoriteToggled(payload) {
 
 // ✅ Dışarıdan erişilebilir olması için global tanımla
 async function loadInitialData() {
-    try {
-        const response = await fetch('http://127.0.0.1:8000/images');
-        const data = await response.json();
-        images = data; // Global images dizisini güncelle
-        render();      // UI'ı tekrar çiz
-    } catch (error) {
-        console.error("Veri yükleme hatası:", error);
-    }
+    const response = await fetch('http://127.0.0.1:8000/images');
+    images = await response.json();
+    render();
 }
 
 function onImageRemoved(id) {
@@ -174,7 +171,7 @@ function renderSidebarCategories(categoryList) {
     container.innerHTML = categoryList.map(cat => {
         const name = cat.name;
         
-        if (name === "Kategorize Edilmemiş Favoriler") {
+        if (name === "Uncategorized Favorites") {
             const hasImages = images.some(img => img.category === name && !img.isDeleted);
             if (!hasImages) return ""; 
         }
@@ -191,17 +188,8 @@ function renderSidebarCategories(categoryList) {
 }
 
 function onNewImage(image) {
-    // 1. DUPLICATE GUARD: Zaten listede varsa temizle
-    images = images.filter(img => img.id !== image.id);
-
-    // 2. State'e ekle
-    images.unshift(image);
-
-
-    if (shouldRender(image)) {
-        render();
-    }
-
+    console.log("📡 Yeni görsel geldi:", image);
+    loadInitialData();
 }
 
 function render() {

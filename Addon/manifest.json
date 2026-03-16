@@ -34,7 +34,10 @@
       "js": ["content.js"]
     }
   ],
-
+"web_accessible_resources": [
+    "modal/style.css",
+    "categories.json"
+  ],
   "browser_specific_settings": {
     "gecko": {
       "id": "morgifile@example.com"
