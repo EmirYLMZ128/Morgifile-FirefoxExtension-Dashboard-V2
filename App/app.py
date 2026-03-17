@@ -78,7 +78,7 @@ def init_db():
 
     cursor.execute('''
         INSERT OR IGNORE INTO categories (name, isSystem) 
-        VALUES ('BOŞ DENEME KATEGORİSİ', 0)
+        VALUES ('Empty Cat', 0)
     ''')
 
     conn.commit()
