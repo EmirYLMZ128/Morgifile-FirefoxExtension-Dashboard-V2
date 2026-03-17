@@ -314,6 +314,13 @@ async def rename_category(data: CategoryRenameSchema):
         raise HTTPException(400, "Category name cannot be empty")
 
     conn = get_db_connection()
+    
+    # 🛡️ GÜVENLİK DUVARI BURAYA GELDİ: Sistem kategorisi adı değiştirilemez!
+    cat_to_rename = conn.execute("SELECT isSystem FROM categories WHERE name = ?", (old,)).fetchone()
+    if cat_to_rename and cat_to_rename["isSystem"]:
+        conn.close()
+        raise HTTPException(400, "System categories cannot be renamed")
+
     exists_old = conn.execute("SELECT name FROM categories WHERE name = ?", (old,)).fetchone()
     exists_new = conn.execute("SELECT name FROM categories WHERE name = ?", (new,)).fetchone()
 
