@@ -1,29 +1,18 @@
 import os
-import json
 import uuid
 import urllib.parse
 from typing import Optional, List
-from contextlib import asynccontextmanager
-
 import asyncio
 import time
 import shutil
 import pathlib
-
 import requests
 from httpx import AsyncClient
-
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, FileResponse
 from pydantic import BaseModel
-
-
-
-
-
-
-db_lock = asyncio.Lock()
+import sqlite3
 
 # =====================
 # APP SETUP
@@ -37,11 +26,66 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_FILE = os.path.join("Dashboard", "database", "images.json")
-CAT_LIST = os.path.join("..", "Addon", "categories.json")
+DB_FILE = os.path.join(os.path.dirname(__file__), "morgifile.db")
 DOWNLOADS_PATH = str(os.path.join(pathlib.Path.home(), "Downloads"))
 SAFE_STORAGE = os.path.join(os.getenv('APPDATA'), 'MorgiFile', 'Safe')
 os.makedirs(SAFE_STORAGE, exist_ok=True)
+
+# Lock mechanism
+db_lock = asyncio.Lock()
+
+# =====================
+# SQLITE HELPERS
+# =====================
+def get_db_connection():
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS images (
+            id TEXT PRIMARY KEY,
+            site TEXT,
+            originalUrl TEXT,
+            ProxyUrl TEXT,
+            SafePath TEXT,
+            category TEXT,
+            width INTEGER,
+            height INTEGER,
+            isFavorite BOOLEAN,
+            isDeleted BOOLEAN,
+            isDead BOOLEAN,
+            isCORS BOOLEAN,
+            isSafe BOOLEAN
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS categories (
+            name TEXT PRIMARY KEY,
+            isSystem BOOLEAN DEFAULT 0
+        )
+    ''')
+
+    cursor.execute('''
+        INSERT OR IGNORE INTO categories (name, isSystem) 
+        VALUES ('Uncategorized Favorites', 1)
+    ''')
+
+    cursor.execute('''
+        INSERT OR IGNORE INTO categories (name, isSystem) 
+        VALUES ('BOŞ DENEME KATEGORİSİ', 0)
+    ''')
+
+    conn.commit()
+    conn.close()
+    print("✅ Database engine ready (SQLite)!")
+
+init_db()
 
 # =====================
 # SCHEMAS
@@ -53,8 +97,6 @@ class ImageSaveSchema(BaseModel):
     width: int = 0
     height: int = 0
     aspectRatio: Optional[str] = None
-    
-
 
 class CategoryCreateSchema(BaseModel):
     name: str
@@ -66,10 +108,12 @@ class CategoryRenameSchema(BaseModel):
 
 class CategoryDeleteSchema(BaseModel):
     name: str
-    action: Optional[str] = None   # delete_images | move_images
+    action: Optional[str] = None
     moveTo: Optional[str] = None
 
-
+# =====================
+# WEBSOCKET MANAGER
+# =====================
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -84,130 +128,31 @@ class ConnectionManager:
 
     async def broadcast(self, message: dict):
         dead_connections = []
-
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
             except Exception:
                 dead_connections.append(connection)
 
-        # Ölmüş socket'leri temizle
         for dc in dead_connections:
             self.disconnect(dc)
-
 
 manager = ConnectionManager()
 
 # =====================
-# DB HELPERS
-# =====================
-def init_db():
-    os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
-    if not os.path.exists(DB_FILE):
-        write_db([])
-
-
-def read_db() -> List[dict]:
-    try:
-        with open(DB_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        return []
-
-
-def write_db(data: List[dict]):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
-def init_categories():
-    os.makedirs(os.path.dirname(CAT_LIST), exist_ok=True)
-    if not os.path.exists(CAT_LIST):
-        write_categories({
-            "categories": [
-                { "name": "Kategorize Edilmemiş Favoriler" }
-            ]
-        })
-
-
-def read_categories() -> dict:
-    try:
-        if not os.path.exists(CAT_LIST):
-            return {"categories": []}
-        with open(CAT_LIST, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
-        return {"categories": []}
-
-def write_categories(data: dict):
-    with open(CAT_LIST, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
-
-def check_images_health():
-    data = read_db()  # Mevcut JSON listeni yükleyen fonksiyonun
-    updated = False
-    
-    print("🔍 Görsel sağlık kontrolü başlatılıyor...")
-    
-    for img in data:
-        # Zaten ölü olarak işaretlenmişse veya yerel dosyaysa atla
-        if img.get("isDead") or img["originalUrl"].startswith("images/"):
-            continue
-            
-        try:
-            # Sadece başlıkları kontrol et (resmi indirmez, çok hızlıdır)
-            # allow_redirects=True önemli, çünkü Instagram yönlendirme yapabilir
-            response = requests.head(img["originalUrl"], timeout=5, allow_redirects=True)
-            
-            # Eğer status 400 ve üzerindeyse (404, 410 vb.) bu link ölmüştür
-            if response.status_code >= 400:
-                print(f"💀 Ölü görsel tespit edildi (Status {response.status_code}): {img['id']}")
-                img["isDead"] = True
-                updated = True
-        except Exception as e:
-            # Zaman aşımı veya erişim hatası durumunda da ölü sayabiliriz
-            # Ama internetin kesik olma ihtimaline karşı dikkatli olmalı
-            print(f"⚠️ Bağlantı hatası ({img['id']}): {e}")
-            # Opsiyonel: img["isDead"] = True (Burayı şimdilik kapalı tutabilirsin)
-
-    if updated:
-        write_db(data)
-        print("✅ JSON güncellendi.")
-    else:
-        print("✨ Tüm görseller sağlıklı veya zaten işaretlenmiş.")
-
-
-init_db()
-init_categories()
-
-# =====================
 # ENDPOINTS
 # =====================
-@app.on_event("startup")
-async def startup_event():
-    # İşlemi arka plana atar, sunucu anında başlar ve 8000 portu açılır
-    asyncio.create_task(run_health_check_background())
-
-async def run_health_check_background():
-    # Senkron olan request işlemini thread içinde çalıştırarak kilitlenmeyi önleriz
-    await asyncio.to_thread(check_images_health)
-
-
 @app.post("/images/{img_id}/verify-and-shield")
 async def verify_shield(img_id: str):
-    # 1. Downloads tara
     try:
         files = [os.path.join(DOWNLOADS_PATH, f) for f in os.listdir(DOWNLOADS_PATH)]
     except Exception:
-        raise HTTPException(status_code=500, detail="İndirme klasörüne erişilemedi.")
+        raise HTTPException(status_code=500, detail="Cannot access downloads folder.")
 
     if not files:
-        raise HTTPException(status_code=404, detail="İndirme klasörü boş görünüyor.")
+        raise HTTPException(status_code=404, detail="Downloads folder appears to be empty.")
 
-    # 2. En yeniye göre diz
     files.sort(key=os.path.getmtime, reverse=True)
-
-    # 3. Son 60 saniye içindeki görseli bul
     target_file = None
     now = time.time()
     for f in files:
@@ -221,285 +166,167 @@ async def verify_shield(img_id: str):
         new_name = f"{img_id}{ext}"
         final_path = os.path.join(SAFE_STORAGE, new_name)
         
-        # Dosyayı taşı
-        shutil.move(target_file, final_path)
+        # Move file (Using await to_thread prevents blocking the server)
+        await asyncio.to_thread(shutil.move, target_file, final_path)
         
-        # 🔥 İŞTE EKSİK OLAN KISIM: DB GÜNCELLEME
-        all_images = read_db() # JSON dosyanı oku
-        updated = False
-        
-        for img in all_images:
-            if img["id"] == img_id:
-                img["isSafe"] = True
-                img["SafePath"] = final_path
-                updated = True
-                break
-        # ... (dosya taşıma ve JSON yazma işlemleri bittikten sonra)
+        conn = get_db_connection()
+        cursor = conn.execute("UPDATE images SET isSafe = 1, SafePath = ? WHERE id = ?", (final_path, img_id))
+        conn.commit()
+        updated = cursor.rowcount > 0
+        conn.close()
+
         if updated:
-            write_db(all_images)
-            
-            # 📡 WEB SOCKET YAYINI: Tüm istemcilere "veriler değişti, yenilenin" de
-            if manager: # Senin WebSocket manager nesnenin adı neyse (genelde manager olur)
-                await manager.broadcast({"type": "RELOAD_DATA", "message": "Görsel kalkan altına alındı!"})
-                
+            await manager.broadcast({"type": "RELOAD_DATA", "message": "Image successfully shielded!"})
             return {"status": "success", "safe_path": final_path}
         else:
-            raise HTTPException(status_code=404, detail="Görsel veritabanında bulunamadı.")
+            raise HTTPException(status_code=404, detail="Image not found in database.")
     
-    raise HTTPException(status_code=404, detail="Yeni bir görsel dosyası bulunamadı.")
-    
+    raise HTTPException(status_code=404, detail="No new image file found.")
+
 @app.post("/add-image")
 async def add_image(data: ImageSaveSchema):
-    async with db_lock:
-        try:
-            db = read_db()
+    conn = get_db_connection()
+    try:
+        # 1. DUPLICATE CHECK (Has this link been added before?)
+        existing = conn.execute("SELECT id FROM images WHERE originalUrl = ?", (data.originalUrl,)).fetchone()
+        
+        if existing:
+            conn.close()
+            return {"status": "already_exists", "message": "This image is already saved."}
 
-            # DUPLICATE CHECK
-            if any(img.get("originalUrl") == data.originalUrl for img in db):
-                return {
-                    "status": "already_exists",
-                    "message": "Bu görsel zaten kayıtlı."
-                }
+        # 2. ADD NEW IMAGE TO DATABASE
+        new_id = str(uuid.uuid4())
+        conn.execute('''
+            INSERT INTO images (
+                id, site, originalUrl, ProxyUrl, SafePath, category, 
+                width, height, isFavorite, isDeleted, isDead, isCORS, isSafe
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            new_id, data.site, data.originalUrl, "", "", data.category,
+            data.width, data.height, False, False, False, False, False
+        ))
+        conn.commit()
 
-            new_entry = {
-                "id": str(uuid.uuid4()),
-                "site": data.site,
-                "originalUrl": data.originalUrl,
-                "ProxyUrl": str(),
-                "SafePath":str(),
-                "category": data.category,
-                "width": data.width,
-                "height": data.height,
-                "isFavorite": False,
-                "isDeleted": False,
-                "isDead": False,
-                "isCORS":False,
-                "isSafe": False
-            }
+        # 3. FETCH NEWLY ADDED DATA AND BROADCAST TO DASHBOARD
+        new_entry = dict(conn.execute("SELECT * FROM images WHERE id = ?", (new_id,)).fetchone())
+        conn.close()
 
-            db.append(new_entry)
-            write_db(db)
-
-            await manager.broadcast({
-                "type": "NEW_IMAGE",
-                "payload": new_entry
-            })
-
-            return {
-                "status": "success",
-                "id": new_entry["id"]
-            }
-
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Sunucu kayıt hatası: {str(e)}"
-            )
-
+        await manager.broadcast({"type": "NEW_IMAGE", "payload": new_entry})
+        return {"status": "success", "id": new_id}
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"Server save error: {str(e)}")
 
 @app.get("/images")
 async def get_images():
     try:
-        # check_images_health()  <-- BURAYI YORUMA AL VEYA SİL
-        with open(DB_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data
+        conn = get_db_connection()
+        rows = conn.execute("SELECT * FROM images").fetchall()
+        conn.close()
+        # Convert all rows to dict and send to frontend
+        return [dict(row) for row in rows]
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Veriler okunamadı")
+        raise HTTPException(status_code=500, detail=f"Could not read data: {str(e)}")
 
 @app.get("/categories")
 async def get_categories():
-    cats = read_categories()
+    conn = get_db_connection()
+    # Now fetching the isSystem flag as well
+    rows = conn.execute("SELECT name, isSystem FROM categories").fetchall()
+    conn.close()
     return {
-        "categories": cats.get("categories", [])
+        "categories": [
+            {"name": row["name"], "isSystem": bool(row["isSystem"])} 
+            for row in rows
+        ]
     }
-
 
 @app.post("/categories")
 async def add_category(data: CategoryCreateSchema):
-    cats = read_categories()
-    categories = cats.get("categories", [])
-
     name = data.name.strip()
-
     if not name:
-        raise HTTPException(400, "Kategori adı boş")
+        raise HTTPException(400, "Category name cannot be empty")
 
-    if any(c["name"].lower() == name.lower() for c in categories):
-        raise HTTPException(409, "Kategori zaten var")
+    conn = get_db_connection()
+    try:
+        conn.execute("INSERT INTO categories (name) VALUES (?)", (name,))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(409, "Category already exists")
 
-    new_cat = { "name": name }
-    categories.append(new_cat)
+    rows = conn.execute("SELECT name FROM categories").fetchall()
+    conn.close()
+    categories = [{"name": row["name"]} for row in rows]
 
-    write_categories({ "categories": categories })
-
-    # 🚀 İŞTE EKSİK OLAN SİHİRLİ KOD BURASI: Dashboard'a canlı yayın yapıyoruz!
-    await manager.broadcast({
-        "type": "CATEGORIES_UPDATED",
-        "payload": categories
-    })
-
-    return new_cat
-
+    await manager.broadcast({"type": "CATEGORIES_UPDATED", "payload": categories})
+    return {"name": name}
 
 @app.delete("/categories")
 async def delete_category(data: CategoryDeleteSchema):
-    cats = read_categories()
-    categories = cats.get("categories", [])
+    conn = get_db_connection()
     name = data.name
 
-    if not any(c["name"] == name for c in categories):
-        raise HTTPException(404, "Kategori yok")
+    cat_exists = conn.execute("SELECT name FROM categories WHERE name = ?", (name,)).fetchone()
+    if not cat_exists:
+        conn.close()
+        raise HTTPException(404, "Category not found")
 
-    images = read_db()
+    related_count = conn.execute("SELECT count(*) FROM images WHERE category = ? AND isDeleted = 0", (name,)).fetchone()[0]
 
-    # 👉 Silinmemiş ve bu kategoriye ait görseller
-    related = [
-        img for img in images
-        if img.get("category") == name and not img.get("isDeleted")
-    ]
+    if related_count > 0 and not data.action:
+        conn.close()
+        return {"status": "has_images", "count": related_count}
 
-    # 🔍 SADECE KONTROL (ilk istek)
-    if related and not data.action:
-        return {
-            "status": "has_images",
-            "count": len(related)
-        }
+    conn.execute("UPDATE images SET category = 'Uncategorized Favorites' WHERE category = ? AND isDeleted = 0 AND isFavorite = 1", (name,))
 
-    # ⭐ FAVORİ / NORMAL AYRIMI
-    favorite_images = [img for img in related if img.get("isFavorite")]
-    normal_images = [img for img in related if not img.get("isFavorite")]
-
-    # ⭐ FAVORİLER ASLA SİLİNMEZ
-    if favorite_images:
-        # Eğer bu kategori henüz yoksa listeye ekle
-        if not any(c["name"] == "Kategorize Edilmemiş Favoriler" for c in categories):
-            categories.append({"name": "Kategorize Edilmemiş Favoriler"})
-
-        for img in favorite_images:
-            img["category"] = "Kategorize Edilmemiş Favoriler"
-
-    # 🔥 NORMAL GÖRSELLERİ SİL
     if data.action == "delete_images":
-        for img in normal_images:
-            img["isDeleted"] = True
-
-    # 🔁 NORMAL GÖRSELLERİ TAŞI
+        conn.execute("UPDATE images SET isDeleted = 1 WHERE category = ? AND isDeleted = 0 AND isFavorite = 0", (name,))
     elif data.action == "move_images":
         if not data.moveTo:
-            raise HTTPException(400, "moveTo gerekli")
+            conn.close()
+            raise HTTPException(400, "moveTo parameter is required")
+        conn.execute("UPDATE images SET category = ? WHERE category = ? AND isDeleted = 0 AND isFavorite = 0", (data.moveTo, name))
 
-        for img in normal_images:
-            img["category"] = data.moveTo
+    conn.execute("DELETE FROM categories WHERE name = ?", (name,))
+    conn.commit()
+    
+    categories = [{"name": row["name"]} for row in conn.execute("SELECT name FROM categories").fetchall()]
+    conn.close()
 
-    # ❌ KATEGORİYİ SİL
-    categories = [c for c in categories if c["name"] != name]
-
-    write_db(images)
-    write_categories({ "categories": categories })
-
-    await manager.broadcast({
-        "type": "CATEGORIES_UPDATED",
-        "payload": read_categories().get("categories", [])
-    })
-
-    return {
-        "status": "deleted",
-        "affected": len(related),
-        "favorites_protected": len(favorite_images)
-    }
-
+    await manager.broadcast({"type": "CATEGORIES_UPDATED", "payload": categories})
+    return {"status": "deleted", "affected": related_count}
 
 @app.patch("/categories/rename")
 async def rename_category(data: CategoryRenameSchema):
     old = data.oldName.strip()
     new = data.newName.strip()
-
     if not old or not new:
-        raise HTTPException(400, "Kategori adı boş olamaz")
+        raise HTTPException(400, "Category name cannot be empty")
 
-    cats = read_categories()
-    categories = cats.get("categories", [])
-
-    exists_old = any(c["name"] == old for c in categories)
-    exists_new = any(c["name"] == new for c in categories)
+    conn = get_db_connection()
+    exists_old = conn.execute("SELECT name FROM categories WHERE name = ?", (old,)).fetchone()
+    exists_new = conn.execute("SELECT name FROM categories WHERE name = ?", (new,)).fetchone()
 
     if not exists_old:
-        raise HTTPException(404, "Eski kategori bulunamadı")
+        conn.close()
+        raise HTTPException(404, "Old category not found")
 
-    # ⚠️ Aynı isim varsa
     if exists_new and not data.merge:
-        return {
-            "status": "conflict",
-            "message": "Kategori zaten var",
-            "canMerge": True
-        }
+        conn.close()
+        return {"status": "conflict", "message": "Category already exists", "canMerge": True}
 
-    # =====================
-    # KATEGORİ LİSTESİ
-    # =====================
-    new_categories = []
-    for c in categories:
-        if c["name"] == old:
-            if not exists_new:
-                new_categories.append({ "name": new })
-        else:
-            new_categories.append(c)
+    if exists_new and data.merge:
+        conn.execute("DELETE FROM categories WHERE name = ?", (old,))
+        conn.execute("UPDATE images SET category = ? WHERE category = ?", (new, old))
+    else:
+        conn.execute("UPDATE categories SET name = ? WHERE name = ?", (new, old))
+        conn.execute("UPDATE images SET category = ? WHERE category = ?", (new, old))
 
-    write_categories({ "categories": new_categories })
+    conn.commit()
+    conn.close()
 
-    # =====================
-    # GÖRSELLER
-    # =====================
-    images = read_db()
-    for img in images:
-        if img.get("category") == old:
-            img["category"] = new
-
-    write_db(images)
-
-    return {
-        "status": "merged" if exists_new else "renamed",
-        "old": old,
-        "new": new
-    }
-
-
-@app.patch("/images/toggle-favorite/{image_id}")
-async def toggle_favorite(image_id: str):
-    async with db_lock:
-        db = read_db()
-        updated = None
-
-        for img in db:
-            if img["id"] == image_id:
-                # 🗑️ Çöpteyse favori yapılamaz
-                if img.get("isDeleted"):
-                    raise HTTPException(400, "Silinmiş görsel favori yapılamaz")
-
-                img["isFavorite"] = not img.get("isFavorite", False)
-                updated = img
-                break
-
-        if not updated:
-            raise HTTPException(404, "Görsel bulunamadı")
-
-        write_db(db)
-
-        # 🔔 Frontend’e haber ver
-        await manager.broadcast({
-            "type": "FAVORITE_TOGGLED",
-            "payload": {
-                "id": image_id,
-                "isFavorite": updated["isFavorite"]
-            }
-        })
-
-        return {
-            "status": "success",
-            "id": image_id,
-            "isFavorite": updated["isFavorite"]
-        }
+    return {"status": "merged" if exists_new else "renamed", "old": old, "new": new}
 
 @app.patch("/images/change-category")
 async def change_category(payload: dict):
@@ -507,123 +334,141 @@ async def change_category(payload: dict):
     category = payload["category"]
     restore = payload.get("restore", False)
 
-    async with db_lock:
-        db = read_db()
+    conn = get_db_connection()
+    if restore:
+        cursor = conn.execute("UPDATE images SET category = ?, isDeleted = 0 WHERE id = ?", (category, img_id))
+    else:
+        cursor = conn.execute("UPDATE images SET category = ? WHERE id = ?", (category, img_id))
 
-        for img in db:
-            if img["id"] == img_id:
-                img["category"] = category
-                if restore:
-                    img["isDeleted"] = False
-                break
-        else:
-            raise HTTPException(404, "Görsel bulunamadı")
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(404, "Image not found")
 
-        write_db(db)
+    conn.commit()
+    conn.close()
 
     await manager.broadcast({
         "type": "IMAGE_UPDATED",
-        "payload": {
-            "id": img_id,
-            "category": category,
-            "isDeleted": False if restore else None
-        }
+        "payload": { "id": img_id, "category": category, "isDeleted": False if restore else None }
     })
-
     return {"status": "ok"}
 
+@app.patch("/images/toggle-favorite/{image_id}")
+async def toggle_favorite(image_id: str):
+    conn = get_db_connection()
+    img = conn.execute("SELECT isFavorite, isDeleted FROM images WHERE id = ?", (image_id,)).fetchone()
+    
+    if not img:
+        conn.close()
+        raise HTTPException(404, "Image not found")
+    if img["isDeleted"]:
+        conn.close()
+        raise HTTPException(400, "Deleted image cannot be favorited")
 
+    new_fav_status = not img["isFavorite"]
+    conn.execute("UPDATE images SET isFavorite = ? WHERE id = ?", (1 if new_fav_status else 0, image_id))
+    conn.commit()
+    conn.close()
+
+    await manager.broadcast({
+        "type": "FAVORITE_TOGGLED",
+        "payload": { "id": image_id, "isFavorite": new_fav_status }
+    })
+    return {"status": "success", "id": image_id, "isFavorite": new_fav_status}
+
+@app.post("/images/{img_id}/proxy-enable")
+async def enable_proxy(img_id: str):
+    conn = get_db_connection()
+    img = conn.execute("SELECT originalUrl FROM images WHERE id = ?", (img_id,)).fetchone()
+    
+    if not img:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    encoded_url = urllib.parse.quote(img["originalUrl"], safe='')
+    proxy_url = f"https://images.weserv.nl/?url={encoded_url}&default={encoded_url}"
+
+    conn.execute("UPDATE images SET isCORS = 1, ProxyUrl = ? WHERE id = ?", (proxy_url, img_id))
+    conn.commit()
+    
+    updated_img = dict(conn.execute("SELECT * FROM images WHERE id = ?", (img_id,)).fetchone())
+    conn.close()
+    
+    return updated_img
 
 @app.delete("/empty-trash")
 async def empty_trash():
-    async with db_lock:
-        data = read_db()
-        
-        # 1. Silinecek olanları (isDeleted=True olanları) ayıkla
-        trash_items = [img for img in data if img.get("isDeleted", False)]
-        
-        # 2. Bu silinecekler arasında 'isSafe' olanların dosyalarını diskten sil
-        for img in trash_items:
-            if img.get("isSafe") and img.get("SafePath"):
-                safe_path = os.path.normpath(img["SafePath"])
-                try:
-                    if os.path.exists(safe_path):
-                        os.remove(safe_path)
-                        print(f"🗑️ Diskten silindi: {safe_path}")
-                except Exception as e:
-                    print(f"⚠️ Dosya silinirken hata ( {safe_path} ): {e}")
-
-        # 3. Veritabanını temizle (isDeleted olmayanları tut)
-        new_data = [img for img in data if not img.get("isDeleted", False)]
-        write_db(new_data)
-
-        # 📡 Sinyali gönder
-        await manager.broadcast({
-            "type": "TRASH_EMPTIED"
-        })
-
-    return {"message": "Geri dönüşüm kutusu ve fiziksel dosyalar temizlendi"}
-
-@app.delete("/images/permanent-delete/{img_id}")
-async def permanent_delete(img_id: str):
-    data = read_db()
-    img = next((i for i in data if i["id"] == img_id), None)
+    conn = get_db_connection()
     
-    if not img:
-        raise HTTPException(status_code=404, detail="Görsel bulunamadı")
-
-    # 🔥 KRİTİK NOKTA: Eğer görsel kalkandaysa dosyayı diskten sil
-    if img.get("isSafe") and img.get("SafePath"):
+    safe_images = conn.execute("SELECT SafePath FROM images WHERE isDeleted = 1 AND isSafe = 1").fetchall()
+    for img in safe_images:
         safe_path = os.path.normpath(img["SafePath"])
         try:
             if os.path.exists(safe_path):
                 os.remove(safe_path)
-                print(f"🗑️ Dosya diskten silindi: {safe_path}")
+                print(f"🗑️ Deleted from disk: {safe_path}")
         except Exception as e:
-            print(f"⚠️ Dosya silinirken hata oluştu: {e}")
+            print(f"⚠️ Error deleting file ( {safe_path} ): {e}")
 
-    # Veritabanından (JSON) görseli kaldır
-    new_data = [i for i in data if i["id"] != img_id]
-    write_db(new_data)
+    conn.execute("DELETE FROM images WHERE isDeleted = 1")
+    conn.commit()
+    conn.close()
+
+    await manager.broadcast({"type": "TRASH_EMPTIED"})
+    return {"message": "Trash emptied and physical files deleted"}
+
+@app.delete("/images/permanent-delete/{img_id}")
+async def permanent_delete(img_id: str):
+    conn = get_db_connection()
+    img = conn.execute("SELECT isSafe, SafePath FROM images WHERE id = ?", (img_id,)).fetchone()
     
-    return {"status": "success", "message": "Görsel ve yerel dosya silindi"}
+    if not img:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    if img["isSafe"] and img["SafePath"]:
+        safe_path = os.path.normpath(img["SafePath"])
+        try:
+            if os.path.exists(safe_path):
+                os.remove(safe_path)
+                print(f"🗑️ File deleted from disk: {safe_path}")
+        except Exception as e:
+            print(f"⚠️ Error deleting file: {e}")
+
+    conn.execute("DELETE FROM images WHERE id = ?", (img_id,))
+    conn.commit()
+    conn.close()
+    
+    return {"status": "success", "message": "Image and local file deleted"}
 
 @app.patch("/images/{image_id}/trash")
 async def move_image_to_trash(image_id: str):
-    async with db_lock:
-        db = read_db()
-        updated = False
+    conn = get_db_connection()
+    img = conn.execute("SELECT isFavorite FROM images WHERE id = ?", (image_id,)).fetchone()
+    
+    if not img:
+        conn.close()
+        raise HTTPException(404, "Image not found")
+    if img["isFavorite"]:
+        conn.close()
+        raise HTTPException(400, "Favorites cannot be deleted")
 
-        for img in db:
-            if img["id"] == image_id:
-                if img.get("isFavorite"):
-                    raise HTTPException(400, "Favoriler silinemez")
+    conn.execute("UPDATE images SET isDeleted = 1 WHERE id = ?", (image_id,))
+    conn.commit()
+    conn.close()
 
-                img["isDeleted"] = True
-                updated = True
-                break
-
-        if not updated:
-            raise HTTPException(404, "Görsel bulunamadı")
-
-        write_db(db)
-
-        await manager.broadcast({
-            "type": "IMAGE_TRASHED",
-            "payload": { "id": image_id }
-        })
-
-        return { "status": "trashed" }
-
+    await manager.broadcast({
+        "type": "IMAGE_TRASHED",
+        "payload": { "id": image_id }
+    })
+    return { "status": "trashed" }
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)  # Bağlantıyı kabul et
+    await manager.connect(websocket)
     print("✅ WS connected")
-    
     try:
         while True:
-            # İstemciden gelen ping'leri dinle
             msg = await websocket.receive_text()
     except Exception as e:
         print("❌ WS disconnected:", e)
@@ -631,96 +476,36 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/safe-file")
 async def get_safe_file(path: str):
-    # Gelen yolu Windows formatına uygun hale getir
     safe_path = os.path.normpath(path)
     if os.path.exists(safe_path):
         return FileResponse(safe_path)
-    return {"error": "Dosya yok"}
-
-
-@app.post("/images/{img_id}/proxy-enable")
-async def enable_proxy(img_id: str):
-    data = read_db()
-    updated_img = None
-
-    for img in data:
-        if img["id"] == img_id:
-            img["isCORS"] = True
-            # URL'i tam olarak güvenli hale getiriyoruz
-            original_url = img['originalUrl']
-            encoded_url = urllib.parse.quote(original_url, safe='') # safe='' tüm karakterleri kodlar
-            
-            # weserv.nl bazen çok uzun URL'lerde sorun yaşayabilir, 
-            # alternatif olarak doğrudan orijinali de saklayabiliriz.
-            img["ProxyUrl"] = f"https://images.weserv.nl/?url={encoded_url}&default={encoded_url}"
-            updated_img = img
-            break
-
-    if updated_img:
-        write_db(data)
-        return updated_img
-    
-    raise HTTPException(status_code=404, detail="Görsel bulunamadı")
+    return {"error": "File not found"}
 
 @app.get("/proxy/image")
 async def proxy_image(url: str):
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/121.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         "Referer": "https://www.instagram.com/",
         "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
     }
-
     try:
-        async with AsyncClient(
-            follow_redirects=True,
-            timeout=20
-        ) as client:
+        async with AsyncClient(follow_redirects=True, timeout=20) as client:
             resp = await client.get(url, headers=headers)
-
         if resp.status_code != 200:
-            raise HTTPException(
-                status_code=resp.status_code,
-                detail="Image fetch failed"
-            )
-
+            raise HTTPException(status_code=resp.status_code, detail="Image fetch failed")
         content_type = resp.headers.get("content-type", "image/jpeg")
-
-        return Response(
-            content=resp.content,
-            media_type=content_type,
-            headers={
-                "Cache-Control": "public, max-age=86400"
-            }
-        )
-
+        return Response(content=resp.content, media_type=content_type, headers={"Cache-Control": "public, max-age=86400"})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# =====================
-# IMAGE EXISTENCE CHECK (for extension validation)
-# =====================
 @app.get("/check-image")
 async def check_image(url: str):
-    """
-    Allows extension to verify if an image URL still exists.
-    """
-
-    async with db_lock:
-        images = read_db()
-
-        for img in images:
-            if img.get("originalUrl") == url:
-                # If in trash, treat as non-existent
-                #if img.get("isDeleted"):
-                #   return {"exists": False}
-                return {"exists": True}
-
+    conn = get_db_connection()
+    row = conn.execute("SELECT id FROM images WHERE originalUrl = ?", (url,)).fetchone()
+    conn.close()
+    if row:
+        return {"exists": True}
     return {"exists": False}
-
 
 # =====================
 # DEV ENTRY
@@ -728,4 +513,3 @@ async def check_image(url: str):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
-

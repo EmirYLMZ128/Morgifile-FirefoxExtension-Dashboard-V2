@@ -3,10 +3,10 @@
 // =====================
 chrome.storage.local.get([window.location.hostname], (res) => {
   if (res[window.location.hostname] === true) {
-    console.log("Morgifile is Deactive on this site");
+    console.log("MorgiFile is Deactive on this site");
     return;
   }
-  mainEklentiKodlari();
+  mainExtensionCode();
 });
 
 // =====================
@@ -21,7 +21,7 @@ const BG_IMAGE_REGEX = /url\(["']?([^"']*)["']?\)/;
 // =====================
 // MAIN
 // =====================
-function mainEklentiKodlari() {
+function mainExtensionCode() {
   document.addEventListener(
     "contextmenu",
     (e) => {
@@ -118,8 +118,7 @@ function showInitialPicker(images) {
 // CATEGORY MODAL
 // =====================
 async function showCategoryModal(imgUrl) {
-
-  //THIS IS CRITICAL: At each launch, forget the old list so a fresh one can be drawn up.
+  // Always fetch a fresh list on open
   categoryCache = null;
 
   const { host, shadow, overlay } = createShadowHost("morgi-main-host");
@@ -181,6 +180,7 @@ async function setupModalLogic(shadow, host, imgUrl) {
   };
 
   const categories = await loadCategories();
+  
   const createCatWrapper = document.createElement("div");
   createCatWrapper.style.cssText = "padding: 10px; display: none; gap: 8px; border-bottom: 1px solid #2a2a2a; background: #252525;";
   createCatWrapper.innerHTML = `
@@ -188,35 +188,30 @@ async function setupModalLogic(shadow, host, imgUrl) {
     <button id="new-cat-submit" style="width:auto; padding:8px 12px; background:#6366f1; color:#fff; border-radius:6px; font-size:13px; cursor:pointer; border:none; transition:0.2s;">Add</button>
   `;
   
-  // Prevent menu from closing on wrapper click
   createCatWrapper.onclick = (e) => e.stopPropagation();
 
   const submitBtn = createCatWrapper.querySelector("#new-cat-submit");
   const inputEl = createCatWrapper.querySelector("#new-cat-input");
 
-submitBtn.onclick = async (e) => {
+  submitBtn.onclick = async (e) => {
     e.stopPropagation(); 
     const newCatName = inputEl.value.trim();
     
     if (!newCatName) return;
 
-    // 1. CRITICAL CHECK: Ensure image is not already saved before creating a category!
     trigger.innerText = "⏳ Checking...";
     const imageExists = await isImageAlreadySaved(imgUrl);
     
     if (imageExists) {
       showInlineMessage("⚠️ This image is already archived. Category creation aborted.");
-      
-      // Clean up UI, close menu, and halt the process completely
       optionsMenu.classList.remove("show");
       createCatWrapper.style.display = "none";
       newCatBtn.style.display = "block";
       inputEl.value = "";
       trigger.innerText = "Select a category...";
-      return; // IMPORTANT: Prevents executing the lines below and creating a category on the server
+      return; 
     }
 
-    // 2. SMART CHECK: Does the category already exist?
     const existingCategory = categories.find(
       cat => cat.name.toLowerCase() === newCatName.toLowerCase()
     );
@@ -234,7 +229,6 @@ submitBtn.onclick = async (e) => {
       return; 
     }
 
-    // 3. IF NOT: Create the new category on the server
     trigger.innerText = "⏳ Creating...";
     optionsMenu.classList.remove("show"); 
 
@@ -265,7 +259,7 @@ submitBtn.onclick = async (e) => {
     newCatBtn.style.display = "block";
     inputEl.value = "";
   };
-  // Create New Category
+
   const newCatBtn = document.createElement("div");
   newCatBtn.className = "custom-option";
   newCatBtn.innerHTML = `<strong style="color: #6366f1;">+ Create New Category</strong>`;
@@ -282,7 +276,8 @@ submitBtn.onclick = async (e) => {
 
   // LIST EXISTING CATEGORIES
   categories.forEach((cat) => {
-    if (cat.name === "Uncategorized Favorites") return;
+    // 🛡️ HIDES SYSTEM CATEGORIES USING THE NEW 'isSystem' FLAG
+    if (cat.isSystem) return;
 
     const div = document.createElement("div");
     div.className = "custom-option";
@@ -322,7 +317,6 @@ submitBtn.onclick = async (e) => {
 // SAVE HANDLER
 // =====================
 async function handleSave(btn, shadow, host, imgUrl) {
-  // 🔒 DUPLICATE CHECK (BEFORE HITTING THE SERVER)
   const exists = await isImageAlreadySaved(imgUrl);
   if (exists) {
     showInlineMessage("⚠️ This image is already archived. If it’s not visible, it might be in the trash.");
@@ -355,9 +349,7 @@ async function handleSave(btn, shadow, host, imgUrl) {
     });
 
     if (res.ok) {
-      // ✅ Success 
       markImageAsSaved(imgUrl);
-
       btn.innerText = "✅ Saved successfully!!";
       btn.style.background = "#10b981";
       setTimeout(() => host.remove(), 1200);
@@ -381,32 +373,21 @@ function parseResolution(text) {
     : { width: 0, height: 0 };
 }
 
-
 async function loadCategories() {
-
   if (categoryCache) return categoryCache;
   try {
-    const res = await fetch(chrome.runtime.getURL("categories.json"));
+    const res = await fetch("http://127.0.0.1:8000/categories");
     const data = await res.json();
     categoryCache = data.categories;
   } catch {
-
-    categoryCache = [{ name: "Fallback" }];
-
+    categoryCache = [{ name: "Fallback", isSystem: false }];
   }
-
   return categoryCache;
 }
 
 // =====================
 // DUPLICATE CHECK (LOCAL)
 // =====================
-
-// Note:
-// savedImages is a local cache used to prevent duplicate saves.
-// If an image is removed from the dashboard, this cache is not synced.
-// This may be improved in future versions. 
-
 async function isImageAlreadySaved(url) {
   const safeurl = normalizeUrl(url);
   const list = await new Promise((resolve) => {
@@ -433,7 +414,7 @@ async function isImageAlreadySaved(url) {
 
     return true;
   } catch {
-    return true; // fallback
+    return true; 
   }
 }
 
@@ -504,4 +485,3 @@ function showInlineMessage(text) {
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 2000);
 }
-
