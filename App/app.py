@@ -394,8 +394,9 @@ async def enable_proxy(img_id: str):
         conn.close()
         raise HTTPException(status_code=404, detail="Image not found")
 
+    # 🚀 DIŞ SERVİSİ (weserv.nl) SİLDİK, KENDİ LOKAL PROXY'MİZİ YAZIYORUZ
     encoded_url = urllib.parse.quote(img["originalUrl"], safe='')
-    proxy_url = f"https://images.weserv.nl/?url={encoded_url}&default={encoded_url}"
+    proxy_url = f"http://127.0.0.1:8000/proxy/image?url={encoded_url}"
 
     conn.execute("UPDATE images SET isCORS = 1, ProxyUrl = ? WHERE id = ?", (proxy_url, img_id))
     conn.commit()
@@ -404,7 +405,7 @@ async def enable_proxy(img_id: str):
     conn.close()
     
     return updated_img
-
+    
 @app.delete("/empty-trash")
 async def empty_trash():
     conn = get_db_connection()

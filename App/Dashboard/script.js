@@ -269,8 +269,17 @@ function renderCard(img) {
 }
 
 function resolveSource(img) {
-  if (img.isSafe && img.SafePath) return { src: `http://127.0.0.1:8000/safe-file?path=${encodeURIComponent(img.SafePath)}` };
-  if (img.ProxyUrl && img.proxyTried) return { src: img.ProxyUrl };
+  // 1. ÖNCELİK: Eğer kalkan aktifse (Yerel Dosya)
+  if (img.isSafe && img.SafePath) {
+      return { src: `http://127.0.0.1:8000/safe-file?path=${encodeURIComponent(img.SafePath)}` };
+  }
+  
+  // 2. ÖNCELİK: Eğer DB'de Proxy kayıtlıysa (isCORS=1) veya o an hata yeyip proxy'ye düştüyse (proxyTried)
+  if ((img.isCORS && img.ProxyUrl) || (img.ProxyUrl && img.proxyTried)) {
+      return { src: img.ProxyUrl };
+  }
+  
+  // 3. ÖNCELİK: Hiçbir sorunu olmayan, temiz görseller
   return { src: img.originalUrl };
 }
 
@@ -278,22 +287,31 @@ async function handleImageError(imgEl, imageId, originalUrl) {
   const img = images.find(i => i.id === imageId);
   if (!img) return;
 
-  // EĞER PROXY ZATEN DENENMİŞSE VE YİNE HATA VERDİYSE -> GÖRSEL ÖLMÜŞTÜR (404)
+  // 1. EĞER PROXY ZATEN DENENMİŞSE VE YİNE HATA VERDİYSE -> MEZARLIĞA AT
   if (img.proxyTried) {
       if (!img.isDead) {
           img.isDead = true;
-          // Sunucuya "Bu görsel öldü, mezara al" diyoruz
           fetch(`http://127.0.0.1:8000/images/${imageId}/mark-dead`, { method: 'PATCH' });
-          render(); // Ekranı yenile ki mezarlığa gitsin
+          render(); 
       }
       return;
   }
   
-  // İLK HATA: CORS olabilir. Proxy'yi devreye sok.
+  // 2. İLK HATA: CORS olabilir. Proxy'yi devreye sok.
   img.proxyTried = true;
   img.ProxyUrl = `http://127.0.0.1:8000/proxy/image?url=${encodeURIComponent(originalUrl)}`;
   img.isCORS = true;
-  render();
+  render(); // Ekranı hemen düzelt ki kullanıcı kırık resim görmesin
+
+  // 🚀 EKSİK OLAN KISIM: Veritabanına durumu kaydet!
+  try {
+      await fetch(`http://127.0.0.1:8000/images/${imageId}/proxy-enable`, { 
+          method: 'POST' 
+      });
+      console.log(`Görsel ${imageId} veritabanında Proxy'li olarak güncellendi.`);
+  } catch (err) {
+      console.error("Proxy durumu veritabanına yazılamadı:", err);
+  }
 }
 
 // =====================
