@@ -78,7 +78,11 @@ def init_db():
 
     cursor.execute('''
         INSERT OR IGNORE INTO categories (name, isSystem) 
+<<<<<<< HEAD
         VALUES ('Empty Cat1', 0)
+=======
+        VALUES ('Empty Cat', 0)
+>>>>>>> 916641e4830183e49e8e529c5be646344517eeaf
     ''')
 
     conn.commit()
