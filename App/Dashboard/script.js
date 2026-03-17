@@ -122,8 +122,16 @@ function render() {
   grid.innerHTML = "";
   
   const list = images.filter(img => {
+    // Çöpteki çöpte kalır
     if (activeCategory === "Geri Dönüşüm") return img.isDeleted;
     if (img.isDeleted) return false;
+
+    // MEZARLIK MANTIĞI: Eğer kategori Mezarlık ise sadece ölüleri göster
+    if (activeCategory === "Mezarlık") return img.isDead;
+    // Eğer görsel ölüyse ve biz Mezarlık'ta değilsek, onu diğer sayfalardan gizle
+    if (img.isDead) return false;
+
+    // Diğer normal filtreler
     if (activeCategory === "Tüm Görseller") return true;
     if (activeCategory === "Favoriler") return img.isFavorite;
     return img.category === activeCategory;
@@ -164,7 +172,15 @@ function updateHeaderActions() {
     const headerRight = document.querySelector(".header-right");
     if (!headerRight) return;
 
-    const systemCats = ["Tüm Görseller", "Favoriler", "Geri Dönüşüm"];
+    // 🛡️ GÜVENLİK DUVARI: Düzenlenemez ve Silinemez Kategoriler
+    const systemCats = [
+        "Tüm Görseller", 
+        "Favoriler", 
+        "Geri Dönüşüm", 
+        "Uncategorized Favorites",
+        "Graveyard"
+    ];
+    
     const isSystem = systemCats.includes(activeCategory);
     let htmlButtons = "";
 
@@ -175,7 +191,7 @@ function updateHeaderActions() {
                 <span>Geri dönüşüm kutusunu boşalt</span>
             </button>
         `;
-    } else if (!isSystem) {
+    } else if (!isSystem) { // 👈 EĞER SİSTEM KATEGORİSİ DEĞİLSE BUTONLARI GÖSTER
         htmlButtons += `
             <button class="action-btn tinder" onclick="toggleTinderMode()" title="Keşfet Modu">
               <i class="fas fa-fire"></i>
@@ -260,8 +276,20 @@ function resolveSource(img) {
 
 async function handleImageError(imgEl, imageId, originalUrl) {
   const img = images.find(i => i.id === imageId);
-  if (!img || img.proxyTried) return;
+  if (!img) return;
+
+  // EĞER PROXY ZATEN DENENMİŞSE VE YİNE HATA VERDİYSE -> GÖRSEL ÖLMÜŞTÜR (404)
+  if (img.proxyTried) {
+      if (!img.isDead) {
+          img.isDead = true;
+          // Sunucuya "Bu görsel öldü, mezara al" diyoruz
+          fetch(`http://127.0.0.1:8000/images/${imageId}/mark-dead`, { method: 'PATCH' });
+          render(); // Ekranı yenile ki mezarlığa gitsin
+      }
+      return;
+  }
   
+  // İLK HATA: CORS olabilir. Proxy'yi devreye sok.
   img.proxyTried = true;
   img.ProxyUrl = `http://127.0.0.1:8000/proxy/image?url=${encodeURIComponent(originalUrl)}`;
   img.isCORS = true;
@@ -535,11 +563,10 @@ document.getElementById("create-cat-btn")?.addEventListener("click", async () =>
     });
 
     if (res.ok) {
-      const newCat = await res.json();
-      categoryCache.push(newCat);
-      renderCategoryManageList(categoryCache);
-      renderSidebarCategories(categoryCache);
-      input.value = "";
+      // 🗑️ BURADAKİ categoryCache.push VE RENDER KODLARINI SİLDİK
+      // Çünkü WebSocket (initSocket içindeki CATEGORIES_UPDATED) zaten ekranı yeniliyor!
+      
+      input.value = ""; // Sadece yazılan metni temizle
     }
   } catch (e) { console.error(e); }
 });

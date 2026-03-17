@@ -78,7 +78,7 @@ def init_db():
 
     cursor.execute('''
         INSERT OR IGNORE INTO categories (name, isSystem) 
-        VALUES ('BOŞ DENEME KATEGORİSİ', 0)
+        VALUES ('Empty Cat1', 0)
     ''')
 
     conn.commit()
@@ -187,14 +187,19 @@ async def verify_shield(img_id: str):
 async def add_image(data: ImageSaveSchema):
     conn = get_db_connection()
     try:
-        # 1. DUPLICATE CHECK (Has this link been added before?)
-        existing = conn.execute("SELECT id FROM images WHERE originalUrl = ?", (data.originalUrl,)).fetchone()
+        # 1. AKILLI DUPLICATE CHECK (Sadece ? işaretinden önceki saf linki ara)
+        base_url = data.originalUrl.split('?')[0]
+        
+        # SQL'de LIKE kullanarak "Bu saf linkle başlayan herhangi bir kayıt var mı?" diyoruz
+        existing = conn.execute(
+            "SELECT id FROM images WHERE originalUrl LIKE ?", 
+            (f"{base_url}%",)
+        ).fetchone()
         
         if existing:
             conn.close()
             return {"status": "already_exists", "message": "This image is already saved."}
 
-        # 2. ADD NEW IMAGE TO DATABASE
         new_id = str(uuid.uuid4())
         conn.execute('''
             INSERT INTO images (
@@ -207,7 +212,6 @@ async def add_image(data: ImageSaveSchema):
         ))
         conn.commit()
 
-        # 3. FETCH NEWLY ADDED DATA AND BROADCAST TO DASHBOARD
         new_entry = dict(conn.execute("SELECT * FROM images WHERE id = ?", (new_id,)).fetchone())
         conn.close()
 
@@ -267,10 +271,15 @@ async def delete_category(data: CategoryDeleteSchema):
     conn = get_db_connection()
     name = data.name
 
-    cat_exists = conn.execute("SELECT name FROM categories WHERE name = ?", (name,)).fetchone()
-    if not cat_exists:
+    cat = conn.execute("SELECT isSystem FROM categories WHERE name = ?", (name,)).fetchone()
+    
+    if not cat:
         conn.close()
         raise HTTPException(404, "Category not found")
+        
+    if cat["isSystem"]:
+        conn.close()
+        raise HTTPException(400, "System categories cannot be deleted")
 
     related_count = conn.execute("SELECT count(*) FROM images WHERE category = ? AND isDeleted = 0", (name,)).fetchone()[0]
 
@@ -498,10 +507,29 @@ async def proxy_image(url: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.patch("/images/{image_id}/mark-dead")
+async def mark_image_dead(image_id: str):
+    conn = get_db_connection()
+    # Görseli ölü (isDead=1) olarak işaretle
+    conn.execute("UPDATE images SET isDead = 1 WHERE id = ?", (image_id,))
+    conn.commit()
+    conn.close()
+
+    # Tüm ekranlara "Görsel öldü, onu mezarlığa taşıyın" mesajı yolla
+    await manager.broadcast({
+        "type": "IMAGE_UPDATED",
+        "payload": { "id": image_id, "isDead": True }
+    })
+    return {"status": "marked_dead"}
+
 @app.get("/check-image")
 async def check_image(url: str):
     conn = get_db_connection()
-    row = conn.execute("SELECT id FROM images WHERE originalUrl = ?", (url,)).fetchone()
+    
+    # Eklentiden gelen sorgularda da sadece saf linki (Base URL) arıyoruz
+    base_url = url.split('?')[0]
+    row = conn.execute("SELECT id FROM images WHERE originalUrl LIKE ?", (f"{base_url}%",)).fetchone()
+    
     conn.close()
     if row:
         return {"exists": True}
