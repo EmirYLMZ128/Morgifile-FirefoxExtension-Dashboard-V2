@@ -2,7 +2,7 @@
 // STATE
 // =====================
 let images = [];
-let activeCategory = "Tüm Görseller";
+let activeCategory = "All Images";
 let categoryCache = [];
 let socket;
 
@@ -47,7 +47,7 @@ async function loadImages() {
     renderCategoryManageList(categoryCache);
     render();
   } catch (e) {
-    console.error("Dashboard veri alınamadı", e);
+    console.error("Dashboard data could not be fetched", e);
   }
 }
 
@@ -66,7 +66,7 @@ function initSocket() {
     const data = JSON.parse(event.data);
 
     if (data.type === "RELOAD_DATA") {
-        console.log("📡 WebSocket: Veriler güncelleniyor...");
+        console.log("📡 WebSocket: Updating data...");
         const modal = document.getElementById("image-detail-modal");
         if(modal) {
             modal.style.display = "none";
@@ -122,18 +122,18 @@ function render() {
   grid.innerHTML = "";
   
   const list = images.filter(img => {
-    // Çöpteki çöpte kalır
-    if (activeCategory === "Geri Dönüşüm") return img.isDeleted;
+    // What's in the trash stays in the trash
+    if (activeCategory === "Trash") return img.isDeleted;
     if (img.isDeleted) return false;
 
-    // MEZARLIK MANTIĞI: Eğer kategori Mezarlık ise sadece ölüleri göster
-    if (activeCategory === "Mezarlık") return img.isDead;
-    // Eğer görsel ölüyse ve biz Mezarlık'ta değilsek, onu diğer sayfalardan gizle
+    // GRAVEYARD LOGIC: If category is Graveyard, show only dead images
+    if (activeCategory === "Graveyard") return img.isDead;
+    // If the image is dead and we are not in Graveyard, hide it from other pages
     if (img.isDead) return false;
 
-    // Diğer normal filtreler
-    if (activeCategory === "Tüm Görseller") return true;
-    if (activeCategory === "Favoriler") return img.isFavorite;
+    // Other normal filters
+    if (activeCategory === "All Images") return true;
+    if (activeCategory === "Favorites") return img.isFavorite;
     return img.category === activeCategory;
   });
 
@@ -172,34 +172,36 @@ function updateHeaderActions() {
     const headerRight = document.querySelector(".header-right");
     if (!headerRight) return;
 
-    // 🛡️ GÜVENLİK DUVARI: Düzenlenemez ve Silinemez Kategoriler
+    // 🛡️ SECURITY WALL: Buttons are hidden in these categories!
     const systemCats = [
-        "Tüm Görseller", 
-        "Favoriler", 
-        "Geri Dönüşüm", 
-        "Uncategorized Favorites",
-        "Graveyard"
+        "All Images", 
+        "Favorites", 
+        "Trash", 
+        "Uncategorized Favorites", 
+        "Kategorize Edilmemiş Favoriler", // For backwards compatibility
+        "Graveyard" // 👈 MAKE SURE THIS IS HERE
     ];
     
     const isSystem = systemCats.includes(activeCategory);
     let htmlButtons = "";
 
-    if (activeCategory === "Geri Dönüşüm") {
+    if (activeCategory === "Trash") {
         htmlButtons += `
             <button class="pill-btn danger" onclick="emptyTrash()">
                 <i class="fas fa-fire"></i>
-                <span>Geri dönüşüm kutusunu boşalt</span>
+                <span>Empty trash bin</span>
             </button>
         `;
-    } else if (!isSystem) { // 👈 EĞER SİSTEM KATEGORİSİ DEĞİLSE BUTONLARI GÖSTER
+    } else if (!isSystem) { 
+        // IF NOT A SYSTEM CATEGORY, RENDER NORMAL BUTTONS
         htmlButtons += `
-            <button class="action-btn tinder" onclick="toggleTinderMode()" title="Keşfet Modu">
+            <button class="action-btn tinder" onclick="toggleTinderMode()" title="Discover Mode">
               <i class="fas fa-fire"></i>
             </button>
-            <button class="action-btn edit" onclick="editCategory('${activeCategory}')" title="Kategoriyi Düzenle">
+            <button class="action-btn edit" onclick="editCategory('${activeCategory}')" title="Edit Category">
                 <i class="fas fa-edit"></i>
             </button>
-            <button class="action-btn delete" onclick="deleteCategory('${activeCategory}')" title="Kategoriyi Sil">
+            <button class="action-btn delete" onclick="deleteCategory('${activeCategory}')" title="Delete Category">
                 <i class="fas fa-trash-can"></i>
             </button>
         `;
@@ -233,24 +235,24 @@ function renderCard(img) {
 
   if (img.isDeleted) {
     actionButtons = `
-      <button class="card-btn permanent-delete-btn" onclick="permanentDelete(event, '${img.id}')" title="Kalıcı sil">
+      <button class="card-btn permanent-delete-btn" onclick="permanentDelete(event, '${img.id}')" title="Delete permanently">
         <i class="fas fa-fire"></i>
       </button>
-      <button class="card-btn edit-btn" onclick="restoreImage(event, '${img.id}')" title="Geri yükle">
+      <button class="card-btn edit-btn" onclick="restoreImage(event, '${img.id}')" title="Restore">
         <i class="fas fa-undo"></i>
       </button>
     `;
   } else {
     actionButtons = `
-      <button class="card-btn fav-btn ${img.isFavorite ? 'active-fav' : ''}" onclick="toggleFavorite(event, '${img.id}')" title="Favori">
+      <button class="card-btn fav-btn ${img.isFavorite ? 'active-fav' : ''}" onclick="toggleFavorite(event, '${img.id}')" title="Favorite">
         <i class="fas fa-star"></i>
       </button>
       ${!img.isFavorite ? `
-          <button class="card-btn delete-btn" onclick="moveToTrash(event, '${img.id}')" title="Çöp kutusuna taşı">
+          <button class="card-btn delete-btn" onclick="moveToTrash(event, '${img.id}')" title="Move to trash">
             <i class="fas fa-trash"></i>
           </button>
       ` : ''}
-      <button class="card-btn edit-btn" onclick="changeImageCategory(event, '${img.id}')" title="Kategori değiştir">
+      <button class="card-btn edit-btn" onclick="changeImageCategory(event, '${img.id}')" title="Change category">
         <i class="fas fa-folder-open"></i>
       </button>
     `;
@@ -269,17 +271,17 @@ function renderCard(img) {
 }
 
 function resolveSource(img) {
-  // 1. ÖNCELİK: Eğer kalkan aktifse (Yerel Dosya)
+  // 1. PRIORITY: If shield is active (Local File)
   if (img.isSafe && img.SafePath) {
       return { src: `http://127.0.0.1:8000/safe-file?path=${encodeURIComponent(img.SafePath)}` };
   }
   
-  // 2. ÖNCELİK: Eğer DB'de Proxy kayıtlıysa (isCORS=1) veya o an hata yeyip proxy'ye düştüyse (proxyTried)
+  // 2. PRIORITY: If Proxy is saved in DB (isCORS=1) or it failed and fell to proxy just now (proxyTried)
   if ((img.isCORS && img.ProxyUrl) || (img.ProxyUrl && img.proxyTried)) {
       return { src: img.ProxyUrl };
   }
   
-  // 3. ÖNCELİK: Hiçbir sorunu olmayan, temiz görseller
+  // 3. PRIORITY: Clean images with no issues
   return { src: img.originalUrl };
 }
 
@@ -287,7 +289,7 @@ async function handleImageError(imgEl, imageId, originalUrl) {
   const img = images.find(i => i.id === imageId);
   if (!img) return;
 
-  // 1. EĞER PROXY ZATEN DENENMİŞSE VE YİNE HATA VERDİYSE -> MEZARLIĞA AT
+  // 1. IF PROXY WAS ALREADY TRIED AND FAILED AGAIN -> MOVE TO GRAVEYARD
   if (img.proxyTried) {
       if (!img.isDead) {
           img.isDead = true;
@@ -297,20 +299,20 @@ async function handleImageError(imgEl, imageId, originalUrl) {
       return;
   }
   
-  // 2. İLK HATA: CORS olabilir. Proxy'yi devreye sok.
+  // 2. FIRST ERROR: Might be CORS. Activate Proxy.
   img.proxyTried = true;
   img.ProxyUrl = `http://127.0.0.1:8000/proxy/image?url=${encodeURIComponent(originalUrl)}`;
   img.isCORS = true;
-  render(); // Ekranı hemen düzelt ki kullanıcı kırık resim görmesin
+  render(); // Fix the screen immediately so user doesn't see a broken image
 
-  // 🚀 EKSİK OLAN KISIM: Veritabanına durumu kaydet!
+  // 🚀 MISSING PART: Save status to database!
   try {
       await fetch(`http://127.0.0.1:8000/images/${imageId}/proxy-enable`, { 
           method: 'POST' 
       });
-      console.log(`Görsel ${imageId} veritabanında Proxy'li olarak güncellendi.`);
+      console.log(`Image ${imageId} updated with Proxy in database.`);
   } catch (err) {
-      console.error("Proxy durumu veritabanına yazılamadı:", err);
+      console.error("Failed to write Proxy status to database:", err);
   }
 }
 
@@ -330,7 +332,7 @@ async function toggleFavorite(e, imageId, isFromDetail = false) {
                 render(); 
             }
         }
-    } catch (err) { console.error("Favori hatası:", err); }
+    } catch (err) { console.error("Favorite error:", err); }
 }
 
 async function moveToTrash(e, imageId) {
@@ -342,7 +344,7 @@ async function moveToTrash(e, imageId) {
             if (img) img.isDeleted = true;
             render();
         }
-    } catch (err) { console.error("Çöpe taşıma hatası", err); }
+    } catch (err) { console.error("Move to trash error:", err); }
 }
 
 function restoreImage(e, id) {
@@ -352,11 +354,11 @@ function restoreImage(e, id) {
 async function permanentDelete(e, id) {
     if (e) e.stopPropagation();
     const confirm = await AppSwal.fire({
-        title: 'Emin misiniz?',
-        text: 'Bu görsel kalkan altında olsa bile kalıcı olarak silinecek ve diskten kaldırılacaktır!',
+        title: 'Are you sure?',
+        text: 'This image will be permanently deleted and removed from the disk, even if it is under the shield!',
         icon: 'warning',
         showCancelButton: true,
-        confirmButtonText: 'Evet, Her Yerden Sil',
+        confirmButtonText: 'Yes, Delete Everywhere',
         confirmButtonColor: '#ef4444'
     });
 
@@ -366,24 +368,24 @@ async function permanentDelete(e, id) {
             if (res.ok) {
                 images = images.filter(img => img.id !== id);
                 render();
-                AppSwal.fire('Silindi', 'Görsel her yerden temizlendi.', 'success');
+                AppSwal.fire('Deleted', 'Image cleared from everywhere.', 'success');
             }
-        } catch (err) { console.error("Silme hatası:", err); }
+        } catch (err) { console.error("Delete error:", err); }
     }
 }
 
 async function emptyTrash() {
   const trashCount = images.filter(img => img.isDeleted).length;
   if (trashCount === 0) {
-    return AppSwal.fire({ icon: 'info', title: 'Boş', text: 'Yakılacak görsel yok.', timer: 2000, showConfirmButton: false });
+    return AppSwal.fire({ icon: 'info', title: 'Empty', text: 'No images to burn.', timer: 2000, showConfirmButton: false });
   }
 
   const result = await AppSwal.fire({
-    title: 'Emin misiniz?',
-    text: `Geri dönüşüm kutusundaki ${trashCount} görsel yakılacak!`,
+    title: 'Are you sure?',
+    text: `${trashCount} images in the trash bin will be burned!`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonText: '<i class="fas fa-fire"></i> Evet, yak gitsin!',
+    confirmButtonText: '<i class="fas fa-fire"></i> Yes, burn it!',
     confirmButtonColor: '#ef4444'
   });
 
@@ -394,9 +396,9 @@ async function emptyTrash() {
     if (res.ok) {
       images = images.filter(img => !img.isDeleted);
       render();
-      AppSwal.fire({ title: 'Boşaltıldı!', icon: 'success', timer: 1500, showConfirmButton: false });
+      AppSwal.fire({ title: 'Emptied!', icon: 'success', timer: 1500, showConfirmButton: false });
     }
-  } catch (e) { console.error("Boşaltma hatası:", e); }
+  } catch (e) { console.error("Empty trash error:", e); }
 }
 
 async function changeImageCategory(e, imageId, restore = false) {
@@ -406,10 +408,10 @@ async function changeImageCategory(e, imageId, restore = false) {
   );
 
   const { value: selected } = await AppSwal.fire({
-    title: restore ? 'Geri Yükle' : 'Kategori Değiştir',
+    title: restore ? 'Restore' : 'Change Category',
     input: 'select',
     inputOptions: options,
-    inputPlaceholder: 'Kategori seç',
+    inputPlaceholder: 'Select category',
     showCancelButton: true
   });
 
@@ -429,7 +431,7 @@ async function changeImageCategory(e, imageId, restore = false) {
     }
     renderSidebarCategories(categoryCache);
     render();
-    AppSwal.fire({ icon: 'success', title: 'Taşındı', timer: 1000, showConfirmButton: false });
+    AppSwal.fire({ icon: 'success', title: 'Moved', timer: 1000, showConfirmButton: false });
   }
 }
 
@@ -446,16 +448,124 @@ function openImageDetail(imageId) {
     else if (img.isCORS && img.ProxyUrl) finalSrc = img.ProxyUrl;
 
     document.getElementById("detail-img").src = finalSrc;
-    document.getElementById("info-site").innerText = img.site || "Bilinmiyor";
+    document.getElementById("info-site").innerText = img.site || "Unknown";
     document.getElementById("info-url").href = img.originalUrl;
     document.getElementById("info-category").innerText = img.category;
     document.getElementById("info-size").innerText = `${img.width || 0}px x ${img.height || 0}px`;
 
     renderDetailActions(img);
+    renderAITools(img); 
+    
     modal.style.display = "flex";
     modal.classList.add("active");
 }
 
+// 🤖 Function Rendering AI and Search Engine Buttons
+function renderAITools(img) {
+    const promptCont = document.getElementById("prompt-btn");
+    const paletteCont = document.getElementById("palette-btn");
+    const searchCont = document.getElementById("search-btn"); 
+
+    const safeUrl = encodeURIComponent(img.originalUrl);
+
+    // 1. PROMPT BUTTON (Gray / Disabled)
+    if (promptCont) {
+        promptCont.innerHTML = `
+            <button class="outline-btn disabled" onclick="showComingSoon('AI Prompt Engine 🤖')" title="Coming Soon!">
+                <i class="fas fa-robot"></i> Generate Prompt
+            </button>
+        `;
+    }
+
+    // 2. COLOR PALETTE BUTTON (Gray / Disabled)
+    if (paletteCont) {
+        paletteCont.innerHTML = `
+            <button class="outline-btn disabled" onclick="showComingSoon('Color Palette Engine 🎨')" title="Coming Soon!">
+                <i class="fas fa-palette"></i> Extract Color
+            </button>
+        `;
+    }
+
+    // 3. SEARCH ENGINE BUTTONS
+    if (searchCont) {
+        searchCont.innerHTML = `
+            <button class="outline-btn" onclick="window.open('https://lens.google.com/uploadbyurl?url=${safeUrl}', '_blank')" title="Search on Google Lens">
+                <i class="fas fa-search"></i> Lens
+            </button>
+            <button class="outline-btn" onclick="window.open('https://yandex.com/images/search?rpt=imageview&url=${safeUrl}', '_blank')" title="Find similar on Yandex">
+                <i class="fab fa-yandex-international"></i> Yandex
+            </button>
+            <button class="outline-btn" onclick="window.open('https://tineye.com/search?url=${safeUrl}', '_blank')" title="Find source with TinEye">
+                <i class="fas fa-eye"></i> TinEye
+            </button>
+        `;
+    }
+}
+
+// 🎨 Color Palette
+/*async function extractColorPalette(imageId) {
+    const img = images.find(i => i.id === imageId);
+    if (!img) return;
+
+    try {
+        // 1. Secretly copy the image link to the clipboard
+        await navigator.clipboard.writeText(img.originalUrl);
+        
+        // 2. Tell the user what to do and confirm
+        AppSwal.fire({
+            icon: 'success',
+            title: 'Link Copied! 🎨',
+            text: 'I copied the image link to your clipboard. Now you can easily extract colors by clicking the "Website URL" section on the ImageColorPicker site that will open and using CTRL+V (Paste).',
+            confirmButtonText: 'Go to Site 🚀',
+            confirmButtonColor: '#6366f1'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                window.open('https://imagecolorpicker.com/en', '_blank');
+            }
+        });
+    } catch (err) {
+        console.error('Clipboard copy failed:', err);
+        // Open the site anyway even if copying is blocked
+        window.open('https://imagecolorpicker.com/en', '_blank');
+    }
+}*/
+
+// 🚀 Common Warning for Features Under Development
+function showComingSoon(featureName) {
+    AppSwal.fire({
+        icon: 'info',
+        title: featureName,
+        text: 'This feature is currently under development! With the Vue.js (V3) update, it will be integrated directly into the system without needing external services. Stay tuned! 😎',
+        confirmButtonText: 'Can\'t wait 🚀',
+        confirmButtonColor: '#6366f1'
+    });
+}
+
+// 🤖 Manual Image Upload Redirection for ChatGPT
+/*async function openChatGPTForPrompt(imageId) {
+    const img = images.find(i => i.id === imageId);
+    if (!img) return;
+
+    await AppSwal.fire({
+        icon: 'info',
+        title: 'AI Wall 🧱',
+        html: `
+            <div style="text-align: left; font-size: 0.95rem; line-height: 1.5;">
+                ChatGPT cannot read external links due to firewalls. But we have a trick:<br><br>
+                <b>1.</b> Right-click on the image behind this and select <b>Copy Image</b>.<br>
+                <b>2.</b> Open ChatGPT by clicking the button below.<br>
+                <b>3.</b> Press <b>CTRL + V</b> in the message box to paste the image and hit Enter!
+            </div>
+        `,
+        confirmButtonText: "Got it, Open ChatGPT 🚀",
+        confirmButtonColor: '#6366f1'
+    });
+
+    // Opening ChatGPT with a ready prompt
+    const promptText = "Please analyze the style, color palette, composition, and lighting of this image in detail. Then, write a professional, high-quality English prompt for me so I can recreate this image in an AI tool like Midjourney or Adobe Firefly.";
+    window.open(`https://chatgpt.com/?q=${encodeURIComponent(promptText)}`, '_blank');
+}
+*/
 function closeDetailModal(e) {
     const modal = document.getElementById("image-detail-modal");
     if (e.target === modal) modal.style.display = "none";
@@ -466,7 +576,7 @@ function renderDetailActions(img) {
     if (!actionCont) return;
 
     const deleteBtnHtml = !img.isFavorite ? `
-        <button class="action-btn delete" onclick="handleDetailDelete('${img.id}')" title="Çöpe Taşı">
+        <button class="action-btn delete" onclick="handleDetailDelete('${img.id}')" title="Move to Trash">
             <i class="fas fa-trash"></i>
         </button>
     ` : '';
@@ -487,11 +597,11 @@ function renderDetailActions(img) {
 
 async function handleDetailDelete(imageId) {
     const result = await AppSwal.fire({
-        title: 'Çöpe taşınsın mı?',
+        title: 'Move to trash?',
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: 'var(--danger)',
-        confirmButtonText: 'Evet, taşı'
+        confirmButtonText: 'Yes, move'
     });
 
     if (result.isConfirmed) {
@@ -505,33 +615,33 @@ async function handleSafeArchive(imageId) {
     if (!img) return;
 
     await AppSwal.fire({
-        title: '<i class="fas fa-shield-alt" style="color:#6366f1"></i> Güvenli Arşiv',
+        title: '<i class="fas fa-shield-alt" style="color:#6366f1"></i> Safe Archive',
         html: `
             <div style="text-align: left; font-size: 0.95rem; line-height: 1.5;">
-                <p>🛡️ Görseli yerel arşivinize almak için:</p>
+                <p>🛡️ To save the image to your local archive:</p>
                 <ol>
-                    <li>Aşağıdaki linke tıkla ve görseli <b>İndirilenler</b> klasörüne kaydet.</li>
+                    <li>Click the link below and save the image to your <b>Downloads</b> folder.</li>
                     <div style="margin: 15px 0; background: #000; padding: 12px; border-radius: 8px; border: 1px solid #333;">
                         <a href="${img.originalUrl}" target="_blank" style="color: #4ade80; text-decoration: none; word-break: break-all; font-family: monospace;">
                             ${img.originalUrl}
                         </a>
                     </div>
-                    <li>İndirme tamamlanınca aşağıdaki <b>Onayla</b> butonuna bas.</li>
+                    <li>Once downloaded, click the <b>Confirm</b> button below.</li>
                 </ol>
             </div>
         `,
         showCancelButton: true,
-        confirmButtonText: 'İndirdim, Onayla ✅',
+        confirmButtonText: 'Downloaded, Confirm ✅',
         confirmButtonColor: '#4f46e5',
         showLoaderOnConfirm: true,
         preConfirm: async () => {
             try {
                 const response = await fetch(`http://127.0.0.1:8000/images/${imageId}/verify-and-shield`, { method: 'POST' });
                 const result = await response.json();
-                if (!response.ok) throw new Error(result.detail || "Dosya bulunamadı");
+                if (!response.ok) throw new Error(result.detail || "File not found");
                 return result; 
             } catch (error) {
-                Swal.showValidationMessage(`Hata: ${error.message}`);
+                Swal.showValidationMessage(`Error: ${error.message}`);
             }
         }
     }).then((result) => {
@@ -541,7 +651,7 @@ async function handleSafeArchive(imageId) {
                 detailModal.style.display = "none";
                 detailModal.classList.remove("active");
             }
-            AppSwal.fire({ icon: 'success', title: 'Kalkan Aktif!', timer: 1500, showConfirmButton: false });
+            AppSwal.fire({ icon: 'success', title: 'Shield Active!', timer: 1500, showConfirmButton: false });
         }
     });
 }
@@ -570,7 +680,7 @@ document.getElementById("create-cat-btn")?.addEventListener("click", async () =>
   if (!name) return;
 
   if (categoryCache.some(c => c.name.toLowerCase() === name.toLowerCase())) {
-    return AppSwal.fire({ icon: 'warning', title: 'Zaten Var', text: 'Bu kategori zaten mevcut' });
+    return AppSwal.fire({ icon: 'warning', title: 'Already Exists', text: 'This category already exists' });
   }
 
   try {
@@ -581,10 +691,10 @@ document.getElementById("create-cat-btn")?.addEventListener("click", async () =>
     });
 
     if (res.ok) {
-      // 🗑️ BURADAKİ categoryCache.push VE RENDER KODLARINI SİLDİK
-      // Çünkü WebSocket (initSocket içindeki CATEGORIES_UPDATED) zaten ekranı yeniliyor!
+      // 🗑️ DELETED categoryCache.push AND RENDER CODES HERE
+      // Because WebSocket (CATEGORIES_UPDATED in initSocket) already refreshes the screen!
       
-      input.value = ""; // Sadece yazılan metni temizle
+      input.value = ""; // Only clear the typed text
     }
   } catch (e) { console.error(e); }
 });
@@ -595,7 +705,7 @@ function renderCategoryManageList(list = []) {
 
     const filteredList = list.filter(cat => cat.name !== "Kategorize Edilmemiş Favoriler" && cat.name !== "Uncategorized Favorites");
     if (filteredList.length === 0) {
-        container.innerHTML = `<p class="empty-text">Düzenlenecek kategori bulunamadı</p>`;
+        container.innerHTML = `<p class="empty-text">No categories found to manage</p>`;
         return;
     }
 
@@ -612,12 +722,12 @@ function renderCategoryManageList(list = []) {
 
 async function editCategory(oldName) {
   const { value: newName } = await AppSwal.fire({
-    title: 'Kategori Düzenle',
+    title: 'Edit Category',
     input: 'text',
     inputValue: oldName,
     showCancelButton: true,
-    confirmButtonText: 'Kaydet',
-    inputValidator: (value) => { if (!value) return 'Boş olamaz'; }
+    confirmButtonText: 'Save',
+    inputValidator: (value) => { if (!value) return 'Cannot be empty'; }
   });
 
   if (!newName || newName === oldName) return;
@@ -631,7 +741,7 @@ async function editCategory(oldName) {
 
   if (data.status === "conflict") {
     const confirmMerge = await AppSwal.fire({
-      icon: 'warning', title: 'Zaten Var', text: `Birleştirilsin mi?`, showCancelButton: true, confirmButtonText: 'Birleştir'
+      icon: 'warning', title: 'Already Exists', text: `Merge?`, showCancelButton: true, confirmButtonText: 'Merge'
     });
     if (!confirmMerge.isConfirmed) return;
     await fetch("http://127.0.0.1:8000/categories/rename", {
@@ -641,12 +751,12 @@ async function editCategory(oldName) {
 
   if (activeCategory === oldName) activeCategory = newName;
   await loadImages();
-  AppSwal.fire({ icon: 'success', title: 'Güncellendi', timer: 1500, showConfirmButton: false });
+  AppSwal.fire({ icon: 'success', title: 'Updated', timer: 1500, showConfirmButton: false });
 }
 
 async function deleteCategory(name) {
   const realCatCount = categoryCache.filter(c => c.name !== "Kategorize Edilmemiş Favoriler" && c.name !== "Uncategorized Favorites").length;
-  if (realCatCount <= 1) return AppSwal.fire({ icon: 'error', title: 'Hata', text: 'Son kategoriyi silemezsiniz.' });
+  if (realCatCount <= 1) return AppSwal.fire({ icon: 'error', title: 'Error', text: 'You cannot delete the last category.' });
 
   const res = await fetch("http://127.0.0.1:8000/categories", {
     method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name })
@@ -654,14 +764,14 @@ async function deleteCategory(name) {
   const data = await res.json();
 
   if (data.status === "deleted") {
-    changeCategory("Tüm Görseller");
+    changeCategory("All Images");
     await loadImages();
-    return AppSwal.fire("Silindi", "", "success");
+    return AppSwal.fire("Deleted", "", "success");
   }
 
   const decision = await AppSwal.fire({
-    icon: 'warning', title: `Siliniyor`, text: `${data.count} görsel bulundu. Favoriler korunur.`,
-    showDenyButton: true, showCancelButton: true, confirmButtonText: 'Görselleri Sil', denyButtonText: 'Başka Yere Taşı'
+    icon: 'warning', title: `Deleting`, text: `${data.count} images found. Favorites are kept.`,
+    showDenyButton: true, showCancelButton: true, confirmButtonText: 'Delete Images', denyButtonText: 'Move Elsewhere'
   });
 
   if (decision.isDismissed) return;
@@ -670,14 +780,14 @@ async function deleteCategory(name) {
     await fetch("http://127.0.0.1:8000/categories", {
       method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, action: "delete_images" })
     });
-    changeCategory("Tüm Görseller");
+    changeCategory("All Images");
     await loadImages();
   }
 
   if (decision.isDenied) {
     const options = categoryCache.map(c => c.name).filter(c => c !== name && c !== "Kategorize Edilmemiş Favoriler" && c !== "Uncategorized Favorites");
     const { value: moveTo } = await AppSwal.fire({
-      title: 'Nereye taşınsın?', input: 'select', inputOptions: Object.fromEntries(options.map(o => [o, o])), showCancelButton: true
+      title: 'Move where?', input: 'select', inputOptions: Object.fromEntries(options.map(o => [o, o])), showCancelButton: true
     });
     if (!moveTo) return;
 
@@ -706,7 +816,7 @@ function emptyView() {
   return `
     <div class="empty-placeholder">
       <i class="fas fa-images"></i>
-      <p>Bu kategoride görsel yok</p>
+      <p>No images in this category</p>
     </div>
   `;
 }

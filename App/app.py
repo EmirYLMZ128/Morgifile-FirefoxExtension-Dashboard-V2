@@ -6,7 +6,6 @@ import asyncio
 import time
 import shutil
 import pathlib
-import requests
 from httpx import AsyncClient
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,7 +27,14 @@ app.add_middleware(
 
 DB_FILE = os.path.join(os.path.dirname(__file__), "morgifile.db")
 DOWNLOADS_PATH = str(os.path.join(pathlib.Path.home(), "Downloads"))
-SAFE_STORAGE = os.path.join(os.getenv('APPDATA'), 'MorgiFile', 'Safe')
+
+# 🛡️ CROSS-PLATFORM SAFE STORAGE (Windows / Mac / Linux Uyumlu)
+if os.name == 'nt': # Windows
+    base_dir = os.getenv('APPDATA')
+else: # Mac/Linux
+    base_dir = os.path.join(pathlib.Path.home(), '.config')
+
+SAFE_STORAGE = os.path.join(base_dir, 'MorgiFile', 'Safe')
 os.makedirs(SAFE_STORAGE, exist_ok=True)
 
 # Lock mechanism
@@ -74,11 +80,6 @@ def init_db():
     cursor.execute('''
         INSERT OR IGNORE INTO categories (name, isSystem) 
         VALUES ('Uncategorized Favorites', 1)
-    ''')
-
-    cursor.execute('''
-        INSERT OR IGNORE INTO categories (name, isSystem) 
-        VALUES ('Empty Cat1', 0)
     ''')
 
     conn.commit()
@@ -187,10 +188,9 @@ async def verify_shield(img_id: str):
 async def add_image(data: ImageSaveSchema):
     conn = get_db_connection()
     try:
-        # 1. AKILLI DUPLICATE CHECK (Sadece ? işaretinden önceki saf linki ara)
+        # SMART DUPLICATE CHECK (Search only the base URL before the '?' sign)
         base_url = data.originalUrl.split('?')[0]
         
-        # SQL'de LIKE kullanarak "Bu saf linkle başlayan herhangi bir kayıt var mı?" diyoruz
         existing = conn.execute(
             "SELECT id FROM images WHERE originalUrl LIKE ?", 
             (f"{base_url}%",)
@@ -227,7 +227,6 @@ async def get_images():
         conn = get_db_connection()
         rows = conn.execute("SELECT * FROM images").fetchall()
         conn.close()
-        # Convert all rows to dict and send to frontend
         return [dict(row) for row in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not read data: {str(e)}")
@@ -235,7 +234,6 @@ async def get_images():
 @app.get("/categories")
 async def get_categories():
     conn = get_db_connection()
-    # Now fetching the isSystem flag as well
     rows = conn.execute("SELECT name, isSystem FROM categories").fetchall()
     conn.close()
     return {
@@ -315,7 +313,7 @@ async def rename_category(data: CategoryRenameSchema):
 
     conn = get_db_connection()
     
-    # 🛡️ GÜVENLİK DUVARI BURAYA GELDİ: Sistem kategorisi adı değiştirilemez!
+    # SECURITY WALL: System categories cannot be renamed!
     cat_to_rename = conn.execute("SELECT isSystem FROM categories WHERE name = ?", (old,)).fetchone()
     if cat_to_rename and cat_to_rename["isSystem"]:
         conn.close()
@@ -401,7 +399,6 @@ async def enable_proxy(img_id: str):
         conn.close()
         raise HTTPException(status_code=404, detail="Image not found")
 
-    # 🚀 DIŞ SERVİSİ (weserv.nl) SİLDİK, KENDİ LOKAL PROXY'MİZİ YAZIYORUZ
     encoded_url = urllib.parse.quote(img["originalUrl"], safe='')
     proxy_url = f"http://127.0.0.1:8000/proxy/image?url={encoded_url}"
 
@@ -518,12 +515,12 @@ async def proxy_image(url: str):
 @app.patch("/images/{image_id}/mark-dead")
 async def mark_image_dead(image_id: str):
     conn = get_db_connection()
-    # Görseli ölü (isDead=1) olarak işaretle
+    # Mark the image as dead (isDead=1)
     conn.execute("UPDATE images SET isDead = 1 WHERE id = ?", (image_id,))
     conn.commit()
     conn.close()
 
-    # Tüm ekranlara "Görsel öldü, onu mezarlığa taşıyın" mesajı yolla
+    # Broadcast to all clients to move it to the graveyard
     await manager.broadcast({
         "type": "IMAGE_UPDATED",
         "payload": { "id": image_id, "isDead": True }
@@ -534,7 +531,7 @@ async def mark_image_dead(image_id: str):
 async def check_image(url: str):
     conn = get_db_connection()
     
-    # Eklentiden gelen sorgularda da sadece saf linki (Base URL) arıyoruz
+    # Check duplicate via Base URL only
     base_url = url.split('?')[0]
     row = conn.execute("SELECT id FROM images WHERE originalUrl LIKE ?", (f"{base_url}%",)).fetchone()
     

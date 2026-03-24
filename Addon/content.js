@@ -19,17 +19,13 @@ let categoryCache = null;
 const BG_IMAGE_REGEX = /url\(["']?([^"']*)["']?\)/;
 
 // =====================
-// MAIN
+// MAIN INITIALIZATION
 // =====================
 function mainExtensionCode() {
-  document.addEventListener(
-    "contextmenu",
-    (e) => {
-      lastX = e.clientX;
-      lastY = e.clientY;
-    },
-    true
-  );
+  document.addEventListener("contextmenu", (e) => {
+    lastX = e.clientX;
+    lastY = e.clientY;
+  }, true);
 
   chrome.runtime.onMessage.addListener((request) => {
     if (request.action === "LOG_NEAREST_IMAGE") {
@@ -44,15 +40,14 @@ function mainExtensionCode() {
 }
 
 // =====================
-// SHADOW HOST
+// SHADOW DOM SETUP
 // =====================
 function createShadowHost(id) {
   document.getElementById(id)?.remove();
 
   const host = document.createElement("div");
   host.id = id;
-  host.style.cssText =
-    "position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999999;";
+  host.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999999;";
   document.body.appendChild(host);
 
   const shadow = host.attachShadow({ mode: "open" });
@@ -72,7 +67,7 @@ function createShadowHost(id) {
 }
 
 // =====================
-// INITIAL PICKER
+// UI: INITIAL MULTI-IMAGE PICKER
 // =====================
 function showInitialPicker(images) {
   const { host, shadow, overlay } = createShadowHost("morgi-picker-host");
@@ -92,10 +87,14 @@ function showInitialPicker(images) {
 
     const img = new Image();
     img.src = imgData.url;
+    
     img.onload = () => {
-      item.querySelector(
-        ".img-resolution"
-      ).innerText = `${img.naturalWidth} x ${img.naturalHeight} PX`;
+      const resEl = item.querySelector(".img-resolution");
+      if(resEl) resEl.innerText = `${img.naturalWidth} x ${img.naturalHeight} PX`;
+    };
+    img.onerror = () => {
+      const resEl = item.querySelector(".img-resolution");
+      if(resEl) resEl.innerText = "Unknown Size";
     };
 
     item.innerHTML = `
@@ -115,23 +114,22 @@ function showInitialPicker(images) {
 }
 
 // =====================
-// CATEGORY MODAL
+// UI: SINGLE IMAGE CATEGORY MODAL
 // =====================
 async function showCategoryModal(imgUrl) {
-  // Always fetch a fresh list on open
-  categoryCache = null;
-
+  categoryCache = null; // Always fetch a fresh list on open
   const { host, shadow, overlay } = createShadowHost("morgi-main-host");
   overlay.appendChild(buildModalHTML(imgUrl, location.hostname));
   setupModalLogic(shadow, host, imgUrl);
 }
 
-// =====================
-// MODAL HTML
-// =====================
 function buildModalHTML(imgUrl, siteAddress) {
   const modal = document.createElement("div");
   modal.className = "modal";
+  
+  // URL Kısaltma Mantığı Düzeltildi
+  const displayUrl = imgUrl.length > 45 ? imgUrl.substring(0, 45) + '...' : imgUrl;
+
   modal.innerHTML = `
     <div class="left"><img src="${imgUrl}"></div>
     <div class="right">
@@ -139,10 +137,7 @@ function buildModalHTML(imgUrl, siteAddress) {
         <h2>MorgiFile Details</h2>
         <div class="info-row">
           <label>Image Link</label>
-          <a href="${imgUrl}" target="_blank" class="info-link">${imgUrl.substring(
-    0,
-    45
-  )}...</a>
+          <a href="${imgUrl}" target="_blank" class="info-link">${displayUrl}</a>
         </div>
         <div class="info-row">
           <label>Image Sizes</label>
@@ -165,7 +160,7 @@ function buildModalHTML(imgUrl, siteAddress) {
 }
 
 // =====================
-// MODAL LOGIC
+// LOGIC: MODAL INTERACTIONS
 // =====================
 async function setupModalLogic(shadow, host, imgUrl) {
   const resEl = shadow.getElementById("radar-res-val");
@@ -173,30 +168,46 @@ async function setupModalLogic(shadow, host, imgUrl) {
   const trigger = shadow.getElementById("radar-trigger");
   const optionsMenu = shadow.getElementById("radar-options");
 
+  // 1. Load Image Dimensions (Sonsuz Loading Düzeltildi)
   const img = new Image();
   img.src = imgUrl;
   img.onload = () => {
     resEl.innerText = `${img.naturalWidth} x ${img.naturalHeight} PX`;
   };
+  img.onerror = () => {
+    resEl.innerText = "Unknown Size";
+  };
 
+  // 2. Fetch Categories
   const categories = await loadCategories();
   
+  // 3. Setup 'Create Category' UI
   const createCatWrapper = document.createElement("div");
   createCatWrapper.style.cssText = "padding: 10px; display: none; gap: 8px; border-bottom: 1px solid #2a2a2a; background: #252525;";
   createCatWrapper.innerHTML = `
     <input type="text" id="new-cat-input" placeholder="Category name..." style="flex:1; background:#121212; border:1px solid #333; color:#eee; padding:8px; border-radius:6px; outline:none; font-size:13px; font-family:inherit;">
     <button id="new-cat-submit" style="width:auto; padding:8px 12px; background:#6366f1; color:#fff; border-radius:6px; font-size:13px; cursor:pointer; border:none; transition:0.2s;">Add</button>
   `;
-  
   createCatWrapper.onclick = (e) => e.stopPropagation();
 
   const submitBtn = createCatWrapper.querySelector("#new-cat-submit");
   const inputEl = createCatWrapper.querySelector("#new-cat-input");
 
+  // Kapsam (Scope) hatası düzeltildi, üste alındı.
+  const newCatBtn = document.createElement("div");
+  newCatBtn.className = "custom-option";
+  newCatBtn.innerHTML = `<strong style="color: #6366f1;">+ Create New Category</strong>`;
+  
+  newCatBtn.onclick = (e) => {
+    e.stopPropagation();
+    newCatBtn.style.display = "none";
+    createCatWrapper.style.display = "flex";
+    inputEl.focus();
+  };
+
   submitBtn.onclick = async (e) => {
     e.stopPropagation(); 
     const newCatName = inputEl.value.trim();
-    
     if (!newCatName) return;
 
     trigger.innerText = "⏳ Checking...";
@@ -204,28 +215,14 @@ async function setupModalLogic(shadow, host, imgUrl) {
     
     if (imageExists) {
       showInlineMessage("⚠️ This image is already archived. Category creation aborted.");
-      optionsMenu.classList.remove("show");
-      createCatWrapper.style.display = "none";
-      newCatBtn.style.display = "block";
-      inputEl.value = "";
-      trigger.innerText = "Select a category...";
+      resetCategoryCreationUI();
       return; 
     }
 
-    const existingCategory = categories.find(
-      cat => cat.name.toLowerCase() === newCatName.toLowerCase()
-    );
+    const existingCategory = categories.find(cat => cat.name.toLowerCase() === newCatName.toLowerCase());
 
     if (existingCategory) {
-      trigger.innerText = existingCategory.name;
-      btn.innerText = `💾 Save On ${existingCategory.name}`;
-      btn.classList.add("active");
-      btn.dataset.category = existingCategory.name;
-      
-      optionsMenu.classList.remove("show");
-      createCatWrapper.style.display = "none";
-      newCatBtn.style.display = "block";
-      inputEl.value = "";
+      selectCategory(existingCategory.name);
       return; 
     }
 
@@ -241,42 +238,44 @@ async function setupModalLogic(shadow, host, imgUrl) {
 
       if (res.ok) {
         const createdCat = await res.json();
-        trigger.innerText = createdCat.name;
-        btn.innerText = `💾 Save On ${createdCat.name}`;
-        btn.classList.add("active");
-        btn.dataset.category = createdCat.name;
+        selectCategory(createdCat.name);
         categoryCache = null; 
       } else {
-        trigger.innerText = "⚠️ Error!";
-        setTimeout(() => { trigger.innerText = "Select a category..."; }, 2000);
+        showCategoryError();
       }
     } catch (err) {
-      trigger.innerText = "📡 Connection Error";
-      setTimeout(() => { trigger.innerText = "Select a category..."; }, 2000);
+      showCategoryError("📡 Connection Error");
     }
-    
-    createCatWrapper.style.display = "none";
-    newCatBtn.style.display = "block";
-    inputEl.value = "";
   };
 
-  const newCatBtn = document.createElement("div");
-  newCatBtn.className = "custom-option";
-  newCatBtn.innerHTML = `<strong style="color: #6366f1;">+ Create New Category</strong>`;
-  
-  newCatBtn.onclick = (e) => {
-    e.stopPropagation();
-    newCatBtn.style.display = "none";
-    createCatWrapper.style.display = "flex";
-    inputEl.focus();
-  };
+  // --- Yardımcı UI Fonksiyonları (Tekrar Eden Kodları Temizledik) ---
+  function selectCategory(name) {
+    trigger.innerText = name;
+    btn.innerText = `💾 Save On ${name}`;
+    btn.classList.add("active");
+    btn.dataset.category = name;
+    resetCategoryCreationUI();
+  }
+
+  function showCategoryError(msg = "⚠️ Error!") {
+    trigger.innerText = msg;
+    setTimeout(() => { trigger.innerText = "Select a category..."; }, 2000);
+    resetCategoryCreationUI();
+  }
+
+  function resetCategoryCreationUI() {
+    optionsMenu.classList.remove("show");
+    createCatWrapper.style.display = "none";
+    newCatBtn.style.display = "block";
+    if(inputEl) inputEl.value = "";
+  }
+  // ------------------------------------------------------------------
 
   optionsMenu.appendChild(createCatWrapper);
   optionsMenu.appendChild(newCatBtn);
 
-  // LIST EXISTING CATEGORIES
+  // 4. List Existing Categories
   categories.forEach((cat) => {
-    // 🛡️ HIDES SYSTEM CATEGORIES USING THE NEW 'isSystem' FLAG
     if (cat.isSystem) return;
 
     const div = document.createElement("div");
@@ -284,50 +283,36 @@ async function setupModalLogic(shadow, host, imgUrl) {
     div.innerText = cat.name;
     div.onclick = (e) => {
       e.stopPropagation();
-      trigger.innerText = cat.name;
-      optionsMenu.classList.remove("show");
-      
-      createCatWrapper.style.display = "none";
-      newCatBtn.style.display = "block";
-      inputEl.value = "";
-
-      btn.innerText = `💾 Save On ${cat.name}`;
-      btn.classList.add("active");
-      btn.dataset.category = cat.name;
+      selectCategory(cat.name);
     };
     optionsMenu.appendChild(div);
   });
- 
+  
   trigger.onclick = (e) => {
     e.stopPropagation();
     optionsMenu.classList.toggle("show");
   };
 
   shadow.addEventListener("click", () => {
-    optionsMenu.classList.remove("show");
-    createCatWrapper.style.display = "none";
-    newCatBtn.style.display = "block";
-    if(inputEl) inputEl.value = "";
+    resetCategoryCreationUI();
   });
 
   btn.onclick = () => handleSave(btn, shadow, host, imgUrl);
 }
 
 // =====================
-// SAVE HANDLER
+// LOGIC: SAVING TO BACKEND
 // =====================
 async function handleSave(btn, shadow, host, imgUrl) {
+  if (!btn.classList.contains("active")) return;
+
   const exists = await isImageAlreadySaved(imgUrl);
   if (exists) {
     showInlineMessage("⚠️ This image is already archived. If it’s not visible, it might be in the trash.");
     return;
   }
 
-  if (!btn.classList.contains("active")) return;
-
-  const { width, height } = parseResolution(
-    shadow.getElementById("radar-res-val").innerText
-  );
+  const { width, height } = parseResolution(shadow.getElementById("radar-res-val").innerText);
 
   const payload = {
     site: location.hostname,
@@ -364,13 +349,11 @@ async function handleSave(btn, shadow, host, imgUrl) {
 }
 
 // =====================
-// HELPERS
+// UTILITIES
 // =====================
 function parseResolution(text) {
   const m = text.match(/(\d+)\s*x\s*(\d+)/);
-  return m
-    ? { width: parseInt(m[1]), height: parseInt(m[2]) }
-    : { width: 0, height: 0 };
+  return m ? { width: parseInt(m[1]), height: parseInt(m[2]) } : { width: 0, height: 0 };
 }
 
 async function loadCategories() {
@@ -385,24 +368,16 @@ async function loadCategories() {
   return categoryCache;
 }
 
-// =====================
-// DUPLICATE CHECK (LOCAL)
-// =====================
 async function isImageAlreadySaved(url) {
   const safeurl = normalizeUrl(url);
   const list = await new Promise((resolve) => {
-    chrome.storage.local.get(["savedImages"], (res) => {
-      resolve(res.savedImages || []);
-    });
+    chrome.storage.local.get(["savedImages"], (res) => resolve(res.savedImages || []));
   });
 
   if (!list.includes(safeurl)) return false;
 
   try {
-    const res = await fetch(
-      `http://127.0.0.1:8000/check-image?url=${encodeURIComponent(url)}`
-    );
-
+    const res = await fetch(`http://127.0.0.1:8000/check-image?url=${encodeURIComponent(url)}`);
     if (!res.ok) throw new Error();
     const data = await res.json();
 
@@ -411,7 +386,6 @@ async function isImageAlreadySaved(url) {
       chrome.storage.local.set({ savedImages: updated });
       return false;
     }
-
     return true;
   } catch {
     return true; 
@@ -433,13 +407,8 @@ function normalizeUrl(url) {
   return url.split("?")[0];
 }
 
-// =====================
-// IMAGE FINDER
-// =====================
 function findBestImages(x, y) {
-  const els = document.querySelectorAll(
-    "img,[role='img'],[style*='background-image']"
-  );
+  const els = document.querySelectorAll("img,[role='img'],[style*='background-image']");
   const matches = [];
 
   for (const el of els) {
@@ -451,8 +420,7 @@ function findBestImages(x, y) {
     const dist = Math.hypot(dx, dy);
     if (dist > 30) continue;
 
-    let url =
-      el.tagName === "IMG"
+    let url = el.tagName === "IMG"
         ? el.currentSrc || el.src
         : (getComputedStyle(el).backgroundImage.match(BG_IMAGE_REGEX) || [])[1];
 
@@ -461,9 +429,7 @@ function findBestImages(x, y) {
     }
   }
 
-  return [...new Map(matches.map((m) => [m.url, m])).values()].sort(
-    (a, b) => a.dist - b.dist || b.area - a.area
-  );
+  return [...new Map(matches.map((m) => [m.url, m])).values()].sort((a, b) => a.dist - b.dist || b.area - a.area);
 }
 
 function showInlineMessage(text) {
