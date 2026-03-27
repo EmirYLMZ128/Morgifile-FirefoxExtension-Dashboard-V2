@@ -1,94 +1,80 @@
-# Morgifile (Beta)
+# Morgifile
 
 [🇬🇧 English README](readme.md)
 
-Morgifile, web üzerindeki görselleri hızlı ve verimli bir şekilde arşivlemek, kategorize etmek ve yönetmek için geliştirilmiş **Firefox eklentisi + web dashboard** tabanlı bir uygulamadır.
+Morgifile, web üzerindeki görselleri sorunsuz bir şekilde arşivlemek, kategorize etmek ve yönetmek için tasarlanmış güçlü bir **Firefox eklentisi + web dashboard** uygulamasıdır. Gerçek bir "Tasarımcı Asistanı" olarak hareket ederek görsel ilhamınızın her zaman güvende ve düzenli olmasını sağlar.
 
-Proje; bir Firefox eklentisi, yerel olarak çalışan bir Python server ve bu verileri görselleştiren bir dashboard arayüzünden oluşur.
+Proje; (izole bir arayüze sahip) bir Firefox eklentisi, yerel olarak çalışan bir Python sunucusu (FastAPI) ve toplanan verileri görselleştirip yönetmenizi sağlayan modern bir dashboard arayüzünden oluşur.
 
 ---
 
-## 🚀 Özellikler
+## 🚀 Temel Özellikler
 
-- Firefox üzerinden herhangi bir web sitesindeki görseli **sağ tıklayarak kaydetme**
-- Görsellerin **yerel Python server** aracılığıyla işlenmesi
-- Verilerin **JSON formatında** saklanması
-- Dashboard özellikleri:
-  - Görselleri kategoriler halinde görüntüleme
-  - Kategori oluşturma / düzenleme / silme
-  - Görsel silme
-- Basit, merkezi ve kontrol edilebilir bir görsel arşivleme sistemi
+- **Anında Arşivleme:** Firefox eklentisini kullanarak herhangi bir web sitesindeki görseli **sağ tıklayarak** kaydedin.
+- **Güçlü Backend:** Katı CORS politikalarını (ör. Instagram, Pinterest) aşmak için özel bir yerel proxy ile donatılmış **Python sunucusu** üzerinden görselleri işleyin.
+- **SQLite Motoru:** Işık hızında ve güvenilir veri depolama (hantal JSON dosyalarına elveda!).
+- **Kalkan (Safe Storage):** Favori görsellerinizi fiziksel olarak yerel diskinize indirip arşivleyerek sonsuza kadar güvence altına alın.
+- **Mezarlık (Graveyard) Sistemi:** Süresi dolan veya kırık linkleri (ORB hatalarını yöneterek) anında tespit eden ve ana galerinizi tertemiz tutmak için sessizce özel bir Mezarlık kategorisine taşıyan otomatik temizleme mekanizması.
+- **Akıllı Kopya Kontrolü:** Sadece "Base URL" (saf link) analizi yaparak aynı görselin sisteme iki kez kaydedilmesini önler.
+- **Tersine Görsel Arama:** Tek tıkla çalışan arama araçları (Google Lens, Yandex, TinEye) doğrudan dashboard içine entegre edilmiştir.
 
 ---
 
 ## 🧩 Proje Yapısı
 
-- **Firefox Extension**  
-  Web sayfalarındaki görselleri algılar ve seçilen görseli backend’e gönderir.
+- **Firefox Extension:** Web sayfalarındaki görselleri algılar ve backend'e gönderir. Hedef sitelerin CSS'leri ile çakışmayı önlemek için **Shadow DOM** kullanılarak inşa edilmiştir.
 
-- **Python Local Server**  
-  Eklentiden gelen verileri alır, işler ve JSON tabanlı veri yapısına kaydeder.
+- **Python Local Server:** FastAPI ve Uvicorn ile geliştirilmiştir. Gelen verileri alır, proxy isteklerini yönetir, WebSocket yayınlarını yapar ve verileri SQLite veritabanında güvenle saklar.
 
-- **Dashboard (Web UI)**  
-  Kaydedilen görselleri kategoriler halinde gösterir ve yönetim imkânı sunar.
+- **Dashboard (Web UI):** Kaydedilen görselleri kategoriler halinde gösteren, yönetim imkânı sunan ve görsel kütüphanenizin komuta merkezi olarak çalışan tamamen İngilizce (lokalize edilmiş) bir arayüz.
 
 ---
 
 ## 🛠 Kullanılan Teknolojiler
 
-- JavaScript
-- HTML
-- CSS
-- Python
-- Firefox Extension API
+- **Frontend:** Vanilla JavaScript, HTML5, CSS3
+- **Backend:** Python, FastAPI, Uvicorn, SQLite
+- **İletişim:** WebSockets, RESTful API
+- **Tarayıcı:** Firefox Extension API
 
 ---
 
 ## ⚙️ Kurulum (Özet)
 
-> Detaylı kurulum adımları ilerleyen sürümlerde eklenecektir.
+> Detaylı kurulum adımları ilerleyen güncellemelerde eklenecektir.
 
-1. Python local server’ı çalıştırın
-2. Firefox eklentisini tarayıcıya yükleyin
-3. Dashboard arayüzünü tarayıcıdan açın
-4. Web sitelerinde görsellere sağ tıklayarak arşivlemeye başlayın
+1. Python yerel sunucusunu çalıştırın (`python app.py`).
+2. Firefox eklentisini `about:debugging` üzerinden tarayıcıya yükleyin.
+3. Dashboard arayüzünü (`index.html`) tarayıcıda açın.
+4. Herhangi bir web sitesindeki görsele sağ tıklayarak arşivlemeye başlayın!
 
 ---
 
 ## 📌 Proje Durumu
 
-Bu proje şu anda **Beta** aşamasındadır.
+Proje şu anda stabil **V2 Sürümündedir**.
+Temel mimari (Veritabanı, Proxy, Safe Storage) sağlam ve tamamen işlevseldir. Şu anda kapsamlı bir **V3 (Vue.js) revizyonu** için hazırlık yapıyoruz.
 
-- Temel özellikler çalışmaktadır
-- Uygulama aktif olarak kullanılabilmektedir
-- Ancak:
-  - Bazı özellikler eksiktir
-  - Kod yapısı geliştirmeye açıktır
+---
 
-Proje sürekli olarak geliştirilmektedir.
+## 🗺 Roadmap (V3 Vizyonu)
+
+- **Vue.js Geçişi:** Vanilla JS dashboard'unu modüler bir Vue.js + Tailwind CSS mimarisine taşıma.
+- **Arka Plan Sağlık Taraması (Health Check):** Kaydedilen URL'lere ping atan ve kırık linkleri frontend tetikleyicilerine (onerror) bağlı kalmadan otomatik olarak güncelleyen sessiz bir arka plan görevi.
+- **Yapay Zeka Prompt Asistanı:** Arşivlediğiniz görsellere dayanarak yapay zeka araçları (Midjourney veya Firefly gibi) için kolayca detaylı promptlar oluşturmanıza yardımcı olacak akıllı iş akışları.
+- **Renk Paleti Araçları:** Kaydedilen görsellerden baskın renkleri ve HEX kodlarını çıkarmak için hızlı ve kolaylaştırılmış yöntemler.
 
 ---
 
 ## 🤝 Katkıda Bulunma
 
-Morgifile, açık kaynaklı ve ticari olmayan bir projedir.  
+Morgifile, açık kaynaklı ve ticari olmayan bir projedir.
 Özellik geliştirme, UI/UX iyileştirmeleri ve kod kalitesini artırma konularında katkıda bulunmak isteyen gönüllüler memnuniyetle karşılanır.
 
 Katkıda bulunmak için:
 - Repoyu fork’layın
-- `good first issue` etiketli bir issue seçin
+- Bir issue seçin
 - Pull request açın
-
----
-
-## 🗺 Roadmap (Planlanan)
-
-- Prompt üretici
-- Renk paleti oluşturucu
-- Performans optimizasyonları
-- Veri yapısının iyileştirilmesi
-- Farklı platformlar için destek
-- UI/UX geliştirmeleri
 
 ---
 
