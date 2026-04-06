@@ -25,17 +25,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_FILE = os.path.join(os.path.dirname(__file__), "morgifile.db")
 DOWNLOADS_PATH = str(os.path.join(pathlib.Path.home(), "Downloads"))
 
-# 🛡️ CROSS-PLATFORM SAFE STORAGE (Windows / Mac / Linux Uyumlu)
+# 🛡️ CROSS-PLATFORM main  (Windows / Mac / Linux Uyumlu)
 if os.name == 'nt': # Windows
     base_dir = os.getenv('APPDATA')
 else: # Mac/Linux
     base_dir = os.path.join(pathlib.Path.home(), '.config')
 
-SAFE_STORAGE = os.path.join(base_dir, 'MorgiFile', 'Safe')
+MORGI_DIR = os.path.join(base_dir, 'MorgiFile')
+
+SAFE_STORAGE = os.path.join(MORGI_DIR, 'Safe')
+THUMB_STORAGE = os.path.join(MORGI_DIR, 'Thumb')
+DB_DIR = os.path.join(MORGI_DIR, 'Database')
+
 os.makedirs(SAFE_STORAGE, exist_ok=True)
+os.makedirs(THUMB_STORAGE, exist_ok=True)
+os.makedirs(DB_DIR, exist_ok=True)
+
+DB_FILE = os.path.join(DB_DIR, "morgifile.db")
 
 # Lock mechanism
 db_lock = asyncio.Lock()
