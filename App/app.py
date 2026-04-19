@@ -12,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, FileResponse
 from pydantic import BaseModel
 import sqlite3
+import io
+from PIL import Image, ImageFilter
 
 # =====================
 # APP SETUP
@@ -233,6 +235,9 @@ async def add_image(data: ImageSaveSchema):
 
         new_entry = dict(conn.execute("SELECT * FROM images WHERE id = ?", (new_id,)).fetchone())
         conn.close()
+        
+        # 🚀 Arkaplanda thumbnail oluştur (Görsel ölü ise hazır olmak için)
+        asyncio.create_task(create_thumbnail(data.url, new_id))
 
         await manager.broadcast({"type": "NEW_IMAGE", "payload": new_entry})
         return {"status": "success", "id": new_id}
@@ -533,13 +538,13 @@ async def proxy_image(url: str):
 @app.patch("/images/{image_id}/mark-dead")
 async def mark_image_dead(image_id: str):
     conn = get_db_connection()
-    conn.execute("UPDATE images SET isDead = 1 WHERE id = ?", (image_id,))
+    conn.execute("UPDATE images SET isDead = 1, isFavorite = 0 WHERE id = ?", (image_id,))
     conn.commit()
     conn.close()
 
     await manager.broadcast({
         "type": "IMAGE_UPDATED",
-        "payload": { "id": image_id, "isDead": True }
+        "payload": { "id": image_id, "isDead": True, "isFavorite": False }
     })
     return {"status": "marked_dead"}
 
@@ -561,6 +566,63 @@ async def check_image(url: str):
         return {"exists": True}
     return {"exists": False}
 
+async def create_thumbnail(url: str, img_id: str):
+    print(f"🔄 Arkaplanda thumbnail indirmesi başladı: {img_id}")
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.instagram.com/",
+            "Sec-Fetch-Dest": "image",
+            "Sec-Fetch-Mode": "no-cors",
+            "Sec-Fetch-Site": "cross-site",
+        }
+        async with AsyncClient(follow_redirects=True, timeout=20) as client:
+            resp = await client.get(url, headers=headers)
+            
+        print(f"📥 Thumbnail GET isteği sonucu: {resp.status_code}")
+        if resp.status_code == 200:
+            def process_image(data):
+                img = Image.open(io.BytesIO(data))
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                
+                # Uzun kenarı 300 yap, diğerini oranla
+                max_size = 300
+                width, height = img.size
+                if width > height:
+                    new_width = max_size
+                    new_height = int((max_size / width) * height)
+                else:
+                    new_height = max_size
+                    new_width = int((max_size / height) * width)
+                    
+                if new_width == 0: new_width = 1
+                if new_height == 0: new_height = 1
+                    
+                img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                
+                # 5px Blur uygula
+                img = img.filter(ImageFilter.GaussianBlur(5))
+                
+                save_path = os.path.join(THUMB_STORAGE, f"{img_id}.jpg")
+                img.save(save_path, "JPEG", quality=85)
+                print(f"💾 Thumbnail başarıyla dosyaya yazıldı: {save_path}")
+
+            await asyncio.to_thread(process_image, resp.content)
+            print(f"✅ Thumbnail created for {img_id}")
+        else:
+            print(f"⚠️ Thumbnail indirilemedi! Durum Kodu: {resp.status_code} - Link: {url}")
+    except Exception as e:
+        print(f"❌ Failed to create thumbnail for {img_id}: {e}")
+
+@app.get("/thumbnail/{img_id}")
+async def get_thumbnail(img_id: str):
+    thumb_path = os.path.join(THUMB_STORAGE, f"{img_id}.jpg")
+    if os.path.exists(thumb_path):
+        return FileResponse(thumb_path)
+    return {"error": "Thumbnail not found"}
 
 # =====================
 # DEV ENTRY

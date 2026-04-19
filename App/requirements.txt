@@ -5,3 +5,4 @@ requests
 pydantic
 websockets
 aiofiles
+pillow
