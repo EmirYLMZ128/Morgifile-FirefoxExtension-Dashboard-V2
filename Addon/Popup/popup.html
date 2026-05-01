@@ -5,14 +5,19 @@
   <style>
     :root {
       --bg-dark: #121212;
-      --accent: #6366f1;
-      --deactive: #cf6679;
-      --active: #03dac6;
+      --accent: #2563eb;
+      --deactive: #EF4444;
+      --active: #10b981;
+      --text: #ffffff;
+    }
+    body.light-mode {
+      --bg-dark: #f5f5f7;
+      --text: #1f2937;
     }
     body {
       width: 240px;
       background: var(--bg-dark);
-      color: white;
+      color: var(--text);
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       padding: 16px;
       margin: 0;

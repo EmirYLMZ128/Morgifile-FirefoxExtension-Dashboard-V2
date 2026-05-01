@@ -9,3 +9,6 @@ Safe/
 __pycache__/
 *.pyc
 .env
+# Local Scripts & Reports
+MorgiFile_Baslat.bat
+optimization_report.md

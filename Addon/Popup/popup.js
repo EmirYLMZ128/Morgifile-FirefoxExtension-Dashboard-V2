@@ -17,17 +17,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 🛠️ Defined INSIDE to access elements and hostname
   const syncUI = (hostname) => {
     return new Promise((resolve) => {
-      chrome.storage.local.get([hostname], (res) => {
+      chrome.storage.local.get([hostname, 'theme'], (res) => {
         const isDeactivated = !!res[hostname];
         
+        // Theme apply
+        if (res.theme === 'light') {
+          document.body.classList.add('light-mode');
+        } else {
+          document.body.classList.remove('light-mode');
+        }
+
         if (isDeactivated) {
           elements.statusLabel.textContent = "DEACTIVE";
-          elements.statusLabel.style.color = "#cf6679";
+          elements.statusLabel.style.color = "#EF4444";
           elements.toggleBtn.textContent = "Activate MorgiFile";
           elements.toggleBtn.className = "btn-active";
         } else {
           elements.statusLabel.textContent = "ACTIVE";
-          elements.statusLabel.style.color = "#03dac6";
+          elements.statusLabel.style.color = "#10b981";
           elements.toggleBtn.textContent = "Deactivate on this site";
           elements.toggleBtn.className = "btn-deactive";
         }

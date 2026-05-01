@@ -242,6 +242,12 @@ function renderCard(img) {
         <i class="fas fa-undo"></i>
       </button>
     `;
+  } else if (img.isDead) {
+    actionButtons = `
+      <button class="card-btn delete-btn" onclick="moveToTrash(event, '${img.id}')" title="Move to trash">
+        <i class="fas fa-trash"></i>
+      </button>
+    `;
   } else {
     actionButtons = `
       <button class="card-btn fav-btn ${img.isFavorite ? 'active-fav' : ''}" onclick="toggleFavorite(event, '${img.id}')" title="Favorite">
@@ -260,7 +266,7 @@ function renderCard(img) {
 
   return `
     <div class="image-card" data-id="${img.id}" onclick="openImageDetail('${img.id}')">
-    <img src="${src}" loading="lazy" onerror="this.onerror=null; handleImageError(this,'${img.id}','${img.originalUrl}')" />
+    <img src="${src}" loading="lazy" onerror="handleImageError(this,'${img.id}','${img.originalUrl}')" />
       <div class="card-overlay">
         <div class="card-actions" onclick="event.stopPropagation()">
           ${actionButtons}
@@ -271,6 +277,11 @@ function renderCard(img) {
 }
 
 function resolveSource(img) {
+  // 0. PRIORITY: If dead, show blurred thumbnail
+  if (img.isDead) {
+      return { src: `http://127.0.0.1:8000/thumbnail/${img.id}` };
+  }
+
   // 1. PRIORITY: If shield is active (Local File)
   if (img.isSafe && img.SafePath) {
       return { src: `http://127.0.0.1:8000/safe-file?path=${encodeURIComponent(img.SafePath)}` };
@@ -289,17 +300,22 @@ async function handleImageError(imgEl, imageId, originalUrl) {
     const img = images.find(i => i.id === imageId);
     if (!img) return;
 
-    if (img.proxyTried) {
+    // Sonsuz döngüyü engelle: Eğer zaten ölüyse (isDead) ve thumbnail da yüklenemediyse hiçbir şey yapma.
+    if (img.isDead) {
+        imgEl.onerror = null; // Daha fazla denemesin
+        return;
+    }
+
+    if (img.proxyTried || imgEl.src.includes('/proxy/image')) {
         if (!img.isDead) {
             console.log("Proxy ile de açılamadı, görsel tamamen ölü (Dead):", imageId);
             img.isDead = true;
+            img.isFavorite = false;
             fetch(`http://127.0.0.1:8000/images/${imageId}/mark-dead`, { method: 'PATCH' });
             render(); 
         }
         return;
     }
-    
-    if (imgEl.src.includes('/proxy/image')) return;
 
     console.log("CORS yedi, Proxy üzerinden kurtarılıyor:", imageId);
     
@@ -310,7 +326,6 @@ async function handleImageError(imgEl, imageId, originalUrl) {
     img.ProxyUrl = proxyUrl; 
     
     imgEl.src = proxyUrl;
-    
 }
 
 // =====================
@@ -441,7 +456,9 @@ function openImageDetail(imageId) {
 
     const modal = document.getElementById("image-detail-modal");
     let finalSrc = img.originalUrl;
-    if (img.isSafe && img.SafePath) finalSrc = `http://127.0.0.1:8000/safe-file?path=${encodeURIComponent(img.SafePath)}`;
+    
+    if (img.isDead) finalSrc = `http://127.0.0.1:8000/thumbnail/${img.id}`;
+    else if (img.isSafe && img.SafePath) finalSrc = `http://127.0.0.1:8000/safe-file?path=${encodeURIComponent(img.SafePath)}`;
     else if (img.isCORS && img.ProxyUrl) finalSrc = img.ProxyUrl;
 
     document.getElementById("detail-img").src = finalSrc;
@@ -475,6 +492,21 @@ function renderAITools(img) {
     const promptCont = document.getElementById("prompt-btn");
     const paletteCont = document.getElementById("palette-btn");
     const searchCont = document.getElementById("search-btn"); 
+
+    const secPrompt = document.getElementById("section-prompt");
+    const secPalette = document.getElementById("section-palette");
+    const secSearch = document.getElementById("section-search");
+
+    if (img.isDead) {
+        if (secPrompt) secPrompt.style.display = "none";
+        if (secPalette) secPalette.style.display = "none";
+        if (secSearch) secSearch.style.display = "none";
+        return;
+    } else {
+        if (secPrompt) secPrompt.style.display = "block";
+        if (secPalette) secPalette.style.display = "block";
+        if (secSearch) secSearch.style.display = "block";
+    }
 
     const safeUrl = encodeURIComponent(img.originalUrl);
 
@@ -584,6 +616,15 @@ function closeDetailModal(e) {
 function renderDetailActions(img) {
     const actionCont = document.querySelector(".action-btn-list");
     if (!actionCont) return;
+
+    if (img.isDead) {
+        actionCont.innerHTML = `
+            <button class="action-btn delete" onclick="handleDetailDelete('${img.id}')" title="Move to Trash">
+                <i class="fas fa-trash"></i>
+            </button>
+        `;
+        return;
+    }
 
     const deleteBtnHtml = !img.isFavorite ? `
         <button class="action-btn delete" onclick="handleDetailDelete('${img.id}')" title="Move to Trash">

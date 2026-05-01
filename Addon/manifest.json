@@ -27,6 +27,10 @@
     "default_popup": "Popup/popup.html",
     "default_title": "MorgiFile"
   },
+  "options_ui": {
+    "page": "Options/options.html",
+    "open_in_tab": true
+  },
 
   "content_scripts": [
     {

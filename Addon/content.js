@@ -1,7 +1,14 @@
 // =====================
 // SITE DISABLE CHECK
 // =====================
-chrome.storage.local.get([window.location.hostname], (res) => {
+chrome.storage.local.get([window.location.hostname, 'theme'], (res) => {
+  // Theme apply
+  if (res.theme === 'light') {
+    document.body.classList.add('light-mode');
+  } else {
+    document.body.classList.remove('light-mode');
+  }
+
   if (res[window.location.hostname] === true) {
     console.log("MorgiFile is Deactive on this site");
     return;
@@ -37,6 +44,17 @@ function mainExtensionCode() {
         ? showCategoryModal(images[0].url, images[0].element)
         : showInitialPicker(images);
     }
+
+    if (request.action === "THEME_CHANGED") {
+      const isLight = request.theme === 'light';
+      const bodies = [document.body, document.getElementById('morgi-picker-host'), document.getElementById('morgi-main-host')];
+      
+      bodies.forEach(el => {
+        if (!el) return;
+        if (isLight) el.classList.add('light-mode');
+        else el.classList.remove('light-mode');
+      });
+    }
   });
 }
 
@@ -48,7 +66,7 @@ function createShadowHost(id) {
 
   const host = document.createElement("div");
   host.id = id;
-  host.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999999;";
+  host.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;z-index:2147483647;";
   document.body.appendChild(host);
 
   const shadow = host.attachShadow({ mode: "open" });
@@ -64,6 +82,12 @@ function createShadowHost(id) {
   link.setAttribute("href", chrome.runtime.getURL("modal/style.css"));
 
   shadow.append(link, overlay);
+  
+  // Apply theme to host
+  chrome.storage.local.get(['theme'], (res) => {
+    if (res.theme === 'light') host.classList.add('light-mode');
+  });
+
   return { host, shadow, overlay };
 }
 
@@ -172,6 +196,18 @@ async function setupModalLogic(shadow, host, imgUrl, imgElement) {
   const trigger = shadow.getElementById("radar-trigger");
   const optionsMenu = shadow.getElementById("radar-options");
 
+  btn.style.cssText = `
+    width: 100%;
+    padding: 12px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    margin-top: 10px;
+  `;
+
   const img = new Image();
   img.src = imgUrl;
   img.onload = () => {
@@ -187,7 +223,7 @@ async function setupModalLogic(shadow, host, imgUrl, imgElement) {
   createCatWrapper.style.cssText = "padding: 10px; display: none; gap: 8px; border-bottom: 1px solid #2a2a2a; background: #252525;";
   createCatWrapper.innerHTML = `
     <input type="text" id="new-cat-input" placeholder="Category name..." style="flex:1; background:#121212; border:1px solid #333; color:#eee; padding:8px; border-radius:6px; outline:none; font-size:13px; font-family:inherit;">
-    <button id="new-cat-submit" style="width:auto; padding:8px 12px; background:#6366f1; color:#fff; border-radius:6px; font-size:13px; cursor:pointer; border:none; transition:0.2s;">Add</button>
+    <button id="new-cat-submit" style="width:auto; padding:8px 12px; background:#2563eb; color:#fff; border-radius:6px; font-size:13px; cursor:pointer; border:none; transition:0.2s;">Add</button>
   `;
   createCatWrapper.onclick = (e) => e.stopPropagation();
 
@@ -196,7 +232,7 @@ async function setupModalLogic(shadow, host, imgUrl, imgElement) {
 
   const newCatBtn = document.createElement("div");
   newCatBtn.className = "custom-option";
-  newCatBtn.innerHTML = `<strong style="color: #6366f1;">+ Create New Category</strong>`;
+  newCatBtn.innerHTML = `<strong style="color: #2563eb;">+ Create New Category</strong>`;
   
   newCatBtn.onclick = (e) => {
     e.stopPropagation();
@@ -214,7 +250,7 @@ async function setupModalLogic(shadow, host, imgUrl, imgElement) {
     const imageExists = await isImageAlreadySaved(imgUrl);
     
     if (imageExists) {
-      showInlineMessage("⚠️ This image is already archived. Category creation aborted.");
+      showInlineMessage("⚠️ This image is already archived. Category creation aborted.", "#FBBF24");
       resetCategoryCreationUI();
       return; 
     }
@@ -418,7 +454,7 @@ async function handleSave(btn, shadow, host, imgUrl, imgElement) {
 
   const exists = await isImageAlreadySaved(imgUrl);
   if (exists) {
-    showInlineMessage("⚠️ This image is already archived. If it’s not visible, it might be in the trash.");
+    showInlineMessage("⚠️ This image is already archived. If it’s not visible, it might be in the trash.", "#FBBF24");
     return;
   }
 
@@ -470,12 +506,12 @@ async function handleSave(btn, shadow, host, imgUrl, imgElement) {
       const errData = await res.json().catch(() => "");
       console.error("❌ Backend Error:", errData);
       btn.innerText = "❌ Error!";
-      btn.style.background = "#ef4444";
+      btn.style.background = "#EF4444";
     }
   } catch (err) {
     console.error("📡 Fetch Error:", err);
     btn.innerText = "📡 No connection!";
-    btn.style.background = "#ef4444";
+    btn.style.background = "#EF4444";
   }
 }
 
@@ -564,22 +600,29 @@ function findBestImages(x, y) {
   return [...new Map(matches.map((m) => [m.url, m])).values()].sort((a, b) => a.dist - b.dist || b.area - a.area);
 }
 
-function showInlineMessage(text) {
+function showInlineMessage(text, bgColor = "#1e1e1e") {
   const el = document.createElement("div");
   el.textContent = text;
   el.style.cssText = `
     position: fixed;
-    top: 20px;
+    top: 30px;
     left: 50%;
     transform: translateX(-50%);
-    background: #1e1e1e;
-    color: #fff;
-    padding: 12px 20px;
-    border-radius: 12px;
-    border: 1px solid #333;
-    z-index: 99999999;
+    background: ${bgColor};
+    color: ${bgColor === "#FBBF24" ? "#000" : "#fff"};
+    padding: 14px 24px;
+    border-radius: 14px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    z-index: 2147483647; /* Modalın en üstünde görünmesi için */
     font-size: 14px;
+    font-weight: 600;
+    border: 1px solid rgba(255,255,255,0.1);
+    transition: all 0.3s ease;
   `;
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 2000);
+  setTimeout(() => {
+    el.style.opacity = "0";
+    el.style.transform = "translateX(-50%) translateY(-10px)";
+    setTimeout(() => el.remove(), 300);
+  }, 2500);
 }
