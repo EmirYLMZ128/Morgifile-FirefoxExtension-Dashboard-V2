@@ -30,6 +30,20 @@ Morgifile extensions are the entry point for your visual archiving. They live in
 - `content.js`: Handles right-clicks and UI notifications.
 - `background.js`: Handles communication with the local server.
 
+## 📦 Store Submission & Privacy
+
+Morgifile follows Mozilla's latest security guidelines for automated store submission.
+
+### Privacy Declaration
+The extension includes a mandatory `data_collection_permissions` declaration in `manifest.json`. This officially informs the Firefox Add-on Store (AMO) that:
+- **No user data is collected.**
+- **No data is transmitted to external servers.**
+- **All processing happens locally** on your machine via `localhost`.
+
+### AMO Submission Tip:
+If the store asks why `<all_urls>` is needed, simply state: 
+*"Morgifile requires this permission to allow users to archive images from any website. All data stays strictly on the user's local machine."*
+
 ---
 
 [⬅️ Back to Main README](../readme.md)

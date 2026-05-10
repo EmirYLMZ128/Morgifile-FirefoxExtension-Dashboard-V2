@@ -50,7 +50,10 @@
   ],
   "browser_specific_settings": {
     "gecko": {
-      "id": "morgifile@example.com"
+      "id": "morgifile@local-extension",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
   }
 }
