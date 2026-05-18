@@ -41,7 +41,7 @@ function updateContextMenu(tabId, tab) {
   chrome.storage.local.get(hostname, (res) => {
     const disabled = res[hostname] === true;
 
-    chrome.browserAction.setIcon({
+    chrome.action.setIcon({
       tabId,
       path: disabled ? ICON_DISABLED : ICON_ACTIVE
     });
@@ -131,8 +131,57 @@ async function scanForMorgiFile() {
   isScanning = false;
 }
 
+/* API PROXY — Tüm backend istekleri service worker üzerinden geçer (CORS/PNA bypass) */
+async function bgFetch(path, options = {}) {
+  const result = await chrome.storage.local.get(["morgi_port"]);
+  const port = result.morgi_port || 8000;
+  const res = await fetch(`http://127.0.0.1:${port}${path}`, options);
+  return res;
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "SCAN_FOR_MORGIFILE") {
     scanForMorgiFile();
+    return;
+  }
+
+  if (request.action === "BG_GET_CATEGORIES") {
+    bgFetch("/categories")
+      .then(r => r.json())
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (request.action === "BG_CHECK_IMAGE") {
+    bgFetch(`/check-image?url=${encodeURIComponent(request.url)}`)
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (request.action === "BG_ADD_IMAGE") {
+    bgFetch("/add-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request.payload)
+    })
+      .then(r => r.ok ? r.json() : r.json().then(d => Promise.reject(d)))
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (request.action === "BG_CREATE_CATEGORY") {
+    bgFetch("/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: request.name })
+    })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
   }
 });

@@ -174,27 +174,35 @@
     display: flex;
     flex-direction: column;
     justify-content: space-between;
+    min-width: 0;
+}
+
+.right > div {
+    min-width: 0;
 }
 
 .custom-select-wrapper {
     position: relative;
     overflow: visible;
     margin-top: 10px;
+    max-width: 100%;
 }
 
 .custom-select {
     background: var(--inner-bg) !important;
     color: var(--text) !important;
-    padding: 14px 18px !important;
+    padding: 14px 40px 14px 18px !important;
     border-radius: 12px !important;
     border: 2px solid var(--border) !important;
     cursor: pointer !important;
-    display: flex !important;
-    justify-content: space-between !important;
-    align-items: center !important;
+    display: block !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
     transition: all 0.3s ease !important;
     position: relative !important;
     font-weight: 500 !important;
+    max-width: 100% !important;
 }
 
 .custom-select:hover {
@@ -211,8 +219,10 @@
     border-bottom: 2px solid var(--text-dim);
     transform: rotate(45deg);
     transition: all 0.3s ease;
-    margin-top: -4px;
-    margin-right: 4px;
+    position: absolute;
+    right: 18px;
+    top: 50%;
+    margin-top: -6px;
 }
 
 .custom-options.show + .custom-select::after {
@@ -231,6 +241,9 @@
     color: var(--text);
     font-size: 14px;
     transition: all 0.2s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .custom-option:hover {
@@ -240,6 +253,7 @@
 
 button {
     width: 100%;
+    max-width: 100%;
     padding: 18px;
     border-radius: 12px;
     border: none;
@@ -249,6 +263,9 @@ button {
     font-weight: bold;
     cursor: not-allowed;
     transition: 0.3s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 button.active {

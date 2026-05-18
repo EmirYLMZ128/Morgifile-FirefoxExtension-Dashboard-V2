@@ -2,11 +2,17 @@ const themeToggle = document.getElementById('theme-toggle');
 const themeStatus = document.getElementById('theme-status');
 const statusMsg = document.getElementById('status');
 
+const portInput = document.getElementById('port-input');
+
 // Load saved settings
-chrome.storage.local.get(['theme'], (res) => {
+chrome.storage.local.get(['theme', 'morgi_port'], (res) => {
     const isLight = res.theme === 'light';
     themeToggle.checked = isLight;
     updateStatusText(isLight);
+    
+    if (res.morgi_port) {
+        portInput.value = res.morgi_port;
+    }
 });
 
 // Save on change
@@ -36,6 +42,19 @@ function updateStatusText(isLight) {
     themeStatus.textContent = isLight ? 'Light Mode' : 'Dark Mode';
     themeStatus.style.color = isLight ? '#2563eb' : '#f8fafc';
 }
+
+portInput.onchange = () => {
+    let newPort = parseInt(portInput.value);
+    if (isNaN(newPort) || newPort < 1024 || newPort > 65535) {
+        newPort = 8000;
+        portInput.value = 8000;
+    }
+    chrome.storage.local.set({ morgi_port: newPort }, () => {
+        statusMsg.textContent = "Port saved successfully!";
+        showStatus();
+        setTimeout(() => { statusMsg.textContent = "Settings saved successfully!"; }, 2000);
+    });
+};
 
 function showStatus() {
     statusMsg.classList.add('show');

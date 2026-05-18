@@ -46,7 +46,7 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue';
-import { store, initStore, filteredImages } from '@/store';
+import { store, initStore, filteredImages, BASE_URL } from '@/store';
 import Swal from 'sweetalert2';
 
 import Sidebar from '@/components/layout/Sidebar.vue';
@@ -84,8 +84,6 @@ const AppSwal = Swal.mixin({
 onMounted(() => {
   initStore();
 });
-
-const BASE_URL = 'http://127.0.0.1:8000';
 
 // API Actions
 async function toggleFavorite(imageId) {

@@ -30,6 +30,7 @@ from colorthief import ColorThief
 import threading
 import pystray
 import webbrowser
+import socket
 # =====================
 # PATH HELPERS
 # =====================
@@ -81,6 +82,7 @@ DB_FILE = os.path.join(DB_DIR, "morgifile.db")
 # LOGGING SETUP
 # =====================
 LOG_FILE = os.path.join(LOGS_DIR, "morgifile.log")
+PORT_CONFIG_FILE = os.path.join(MORGI_DIR, "port_config.json")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -96,6 +98,10 @@ logger = logging.getLogger("MorgiFile")
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Global error on {request.url.path}: {exc}", exc_info=True)
     return Response(content=json.dumps({"detail": str(exc)}), status_code=500, media_type="application/json")
+
+@app.get("/api/ping")
+async def ping():
+    return {"status": "morgifile_online"}
 
 # Lock mechanism
 db_lock = asyncio.Lock()
@@ -775,7 +781,7 @@ async def extract_colors(img_id: str):
 # =====================
 # SYSTEM TRAY LOGIC
 # =====================
-def run_tray():
+def run_tray(port):
     icon_path = resource_path("icon.png")
     if not os.path.exists(icon_path):
         # Fallback if icon is missing
@@ -788,7 +794,7 @@ def run_tray():
         os._exit(0)
 
     def on_open_dashboard(icon, item):
-        webbrowser.open("http://localhost:8000")
+        webbrowser.open(f"http://127.0.0.1:{port}")
 
     menu = pystray.Menu(
         pystray.MenuItem("Open Dashboard", on_open_dashboard),
@@ -814,16 +820,55 @@ if os.path.exists(dist_path):
 else:
     print(f"DEBUG ERROR: Dashboard klasoru BULUNAMADI!")
 
+def find_available_port(start_port=8000, max_port=8050):
+    last_port = start_port
+    
+    # Try reading from config
+    if os.path.exists(PORT_CONFIG_FILE):
+        try:
+            with open(PORT_CONFIG_FILE, "r") as f:
+                data = json.load(f)
+                last_port = data.get("last_port", start_port)
+        except Exception:
+            pass
+            
+    # Function to check if a port is open
+    def is_port_open(port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(('127.0.0.1', port)) != 0
+            
+    # Try the last successful port first
+    if is_port_open(last_port):
+        return last_port
+        
+    # Scan range
+    for port in range(start_port, max_port + 1):
+        if is_port_open(port):
+            return port
+            
+    # Fallback to random OS port
+    return 0
+
 if __name__ == "__main__":
     import uvicorn
     
-    # Start server in a background thread
-    # Start server in a background thread
+    actual_port = find_available_port()
+    
+    if actual_port != 0:
+        try:
+            with open(PORT_CONFIG_FILE, "w") as f:
+                json.dump({"last_port": actual_port}, f)
+        except Exception:
+            pass
+    
     def start_server():
-        uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+        uvicorn.run(app, host="127.0.0.1", port=actual_port, log_level="info")
 
     server_thread = threading.Thread(target=start_server, daemon=True)
     server_thread.start()
     
+    # Wait slightly to ensure server thread starts before getting actual port if it was 0 (though uvicorn handles 0 internally, we won't know it easily. In our case it rarely reaches 0).
+    time.sleep(0.5)
+    
     # Run tray in the main thread (required for Windows)
-    run_tray()
+    run_tray(actual_port)

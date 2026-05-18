@@ -13,7 +13,8 @@
     "contextMenus",
     "activeTab",
     "<all_urls>",
-    "storage"
+    "storage",
+    "notifications"
   ],
   "background": {
     "scripts": [

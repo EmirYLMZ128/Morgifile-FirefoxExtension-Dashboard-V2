@@ -23,6 +23,14 @@ let lastX = 0;
 let lastY = 0;
 let categoryCache = null;
 
+async function getServerUrl() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['morgi_port'], (res) => {
+      resolve(`http://127.0.0.1:${res.morgi_port || 8000}`);
+    });
+  });
+}
+
 const BG_IMAGE_REGEX = /url\(["']?([^"']*)["']?\)/;
 
 // =====================
@@ -355,7 +363,8 @@ async function setupModalLogic(shadow, host, imgUrl, imgElement) {
     optionsMenu.classList.remove("show");
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/categories", {
+      const serverUrl = await getServerUrl();
+      const res = await fetch(`${serverUrl}/categories`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newCatName })
@@ -583,7 +592,8 @@ async function handleSave(btn, shadow, host, imgUrl, imgElement) {
   btn.style.background = "#4b4b4b";
 
   try {
-    const res = await fetch("http://127.0.0.1:8000/add-image", {
+    const serverUrl = await getServerUrl();
+    const res = await fetch(`${serverUrl}/add-image`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -601,7 +611,7 @@ async function handleSave(btn, shadow, host, imgUrl, imgElement) {
       btn.style.background = "#EF4444";
     }
   } catch (err) {
-    console.error("📡 Fetch Error:", err);
+    chrome.runtime.sendMessage({ action: "SCAN_FOR_MORGIFILE" });
     btn.innerText = "📡 No connection!";
     btn.style.background = "#EF4444";
   }
@@ -618,10 +628,12 @@ function parseResolution(text) {
 async function loadCategories() {
   if (categoryCache) return categoryCache;
   try {
-    const res = await fetch("http://127.0.0.1:8000/categories");
+    const serverUrl = await getServerUrl();
+    const res = await fetch(`${serverUrl}/categories`);
     const data = await res.json();
     categoryCache = data.categories;
   } catch {
+    chrome.runtime.sendMessage({ action: "SCAN_FOR_MORGIFILE" });
     categoryCache = [{ name: "Fallback", isSystem: false }];
   }
   return categoryCache;
@@ -636,7 +648,8 @@ async function isImageAlreadySaved(url) {
   if (!list.includes(safeurl)) return false;
 
   try {
-    const res = await fetch(`http://127.0.0.1:8000/check-image?url=${encodeURIComponent(url)}`);
+    const serverUrl = await getServerUrl();
+    const res = await fetch(`${serverUrl}/check-image?url=${encodeURIComponent(url)}`);
     if (!res.ok) throw new Error();
     const data = await res.json();
 
@@ -647,6 +660,7 @@ async function isImageAlreadySaved(url) {
     }
     return true;
   } catch {
+    chrome.runtime.sendMessage({ action: "SCAN_FOR_MORGIFILE" });
     return true;
   }
 }

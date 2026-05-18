@@ -23,6 +23,8 @@ let lastX = 0;
 let lastY = 0;
 let categoryCache = null;
 
+// getServerUrl() kaldırıldı — tüm API istekleri background.js üzerinden gidiyor (CORS/PNA bypass)
+
 const BG_IMAGE_REGEX = /url\(["']?([^"']*)["']?\)/;
 
 // =====================
@@ -87,7 +89,7 @@ function createShadowHost(id) {
 
   const link = document.createElement("link");
   link.setAttribute("rel", "stylesheet");
-  link.setAttribute("href", chrome.runtime.getURL("modal/style.css"));
+  link.setAttribute("href", chrome.runtime.getURL("modal/style.css") + "?v=" + Date.now());
 
   shadow.append(link, overlay);
 
@@ -107,12 +109,13 @@ function showInitialPicker(images) {
 
   const modal = document.createElement("div");
   modal.className = "picker-modal";
-  modal.innerHTML = `
-    <h2 style="color:#fff;text-align:center;">Select an image to save</h2>
-    <div class="grid"></div>
-  `;
-
-  const grid = modal.querySelector(".grid");
+  const h2 = document.createElement("h2");
+  h2.style.cssText = "color:#fff;text-align:center;";
+  h2.textContent = "Select an image to save";
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  modal.appendChild(h2);
+  modal.appendChild(grid);
 
   images.forEach((imgData) => {
     const item = document.createElement("div");
@@ -130,10 +133,13 @@ function showInitialPicker(images) {
       if (resEl) resEl.innerText = "Unknown Size";
     };
 
-    item.innerHTML = `
-      <img src="${imgData.url}">
-      <span class="img-resolution">Loading...</span>
-    `;
+    const imgEl = document.createElement("img");
+    imgEl.src = imgData.url;
+    const spanEl = document.createElement("span");
+    spanEl.className = "img-resolution";
+    spanEl.textContent = "Loading...";
+    item.appendChild(imgEl);
+    item.appendChild(spanEl);
 
     item.onclick = () => {
       host.remove();
@@ -165,32 +171,90 @@ function buildModalHTML(imgUrl, siteAddress) {
 
   const displayUrl = imgUrl.length > 45 ? imgUrl.substring(0, 45) + '...' : imgUrl;
 
-  modal.innerHTML = `
-    <div class="left"><img src="${imgUrl}"></div>
-    <div class="right">
-      <div>
-        <h2>MorgiFile Details</h2>
-        <div class="info-row">
-          <label>Image Link</label>
-          <a href="${imgUrl}" target="_blank" class="info-link">${displayUrl}</a>
-        </div>
-        <div class="info-row">
-          <label>Image Sizes</label>
-          <div class="info-val" id="radar-res-val">Loading...</div>
-        </div>
-        <div class="info-row">
-          <label>Site Link</label>
-          <div class="info-val">${siteAddress}</div>
-        </div>
-        <label>Category</label>
-        <div class="custom-select-wrapper">
-          <div class="custom-select" id="radar-trigger">Select a category...</div>
-          <div class="custom-options" id="radar-options"></div>
-        </div>
-      </div>
-      <button id="save-btn">Save</button>
-    </div>
-  `;
+  const leftDiv = document.createElement("div");
+  leftDiv.className = "left";
+  const leftImg = document.createElement("img");
+  leftImg.id = "mf-left-img";
+  leftImg.src = imgUrl;
+  leftDiv.appendChild(leftImg);
+
+  const rightDiv = document.createElement("div");
+  rightDiv.className = "right";
+
+  const innerDiv = document.createElement("div");
+
+  const h2 = document.createElement("h2");
+  h2.textContent = "MorgiFile Details";
+  innerDiv.appendChild(h2);
+
+  const row1 = document.createElement("div");
+  row1.className = "info-row";
+  const lbl1 = document.createElement("label");
+  lbl1.textContent = "Image Link";
+  const a1 = document.createElement("a");
+  a1.target = "_blank";
+  a1.className = "info-link";
+  a1.id = "mf-info-link";
+  a1.href = imgUrl;
+  a1.textContent = displayUrl;
+  row1.appendChild(lbl1);
+  row1.appendChild(a1);
+  innerDiv.appendChild(row1);
+
+  const row2 = document.createElement("div");
+  row2.className = "info-row";
+  const lbl2 = document.createElement("label");
+  lbl2.textContent = "Image Sizes";
+  const val2 = document.createElement("div");
+  val2.className = "info-val";
+  val2.id = "radar-res-val";
+  val2.textContent = "Loading...";
+  row2.appendChild(lbl2);
+  row2.appendChild(val2);
+  innerDiv.appendChild(row2);
+
+  const row3 = document.createElement("div");
+  row3.className = "info-row";
+  const lbl3 = document.createElement("label");
+  lbl3.textContent = "Site Link";
+  const val3 = document.createElement("div");
+  val3.className = "info-val";
+  val3.id = "mf-site-link";
+  val3.textContent = siteAddress;
+  row3.appendChild(lbl3);
+  row3.appendChild(val3);
+  innerDiv.appendChild(row3);
+
+  const catLbl = document.createElement("label");
+  catLbl.textContent = "Category";
+  innerDiv.appendChild(catLbl);
+
+  const selectWrapper = document.createElement("div");
+  selectWrapper.className = "custom-select-wrapper";
+
+  const trigger = document.createElement("div");
+  trigger.className = "custom-select";
+  trigger.id = "radar-trigger";
+  trigger.textContent = "Select a category...";
+
+  const options = document.createElement("div");
+  options.className = "custom-options";
+  options.id = "radar-options";
+
+  selectWrapper.appendChild(trigger);
+  selectWrapper.appendChild(options);
+  innerDiv.appendChild(selectWrapper);
+
+  rightDiv.appendChild(innerDiv);
+
+  const saveBtn = document.createElement("button");
+  saveBtn.id = "save-btn";
+  saveBtn.textContent = "Save";
+  rightDiv.appendChild(saveBtn);
+
+  modal.appendChild(leftDiv);
+  modal.appendChild(rightDiv);
+
   return modal;
 }
 
@@ -214,6 +278,11 @@ async function setupModalLogic(shadow, host, imgUrl, imgElement) {
     cursor: pointer;
     font-weight: bold;
     margin-top: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+    box-sizing: border-box;
   `;
 
   const img = new Image();
@@ -229,18 +298,32 @@ async function setupModalLogic(shadow, host, imgUrl, imgElement) {
 
   const createCatWrapper = document.createElement("div");
   createCatWrapper.style.cssText = "padding: 10px; display: none; gap: 8px; border-bottom: 1px solid #2a2a2a; background: #252525;";
-  createCatWrapper.innerHTML = `
-    <input type="text" id="new-cat-input" placeholder="Category name..." style="flex:1; background:#121212; border:1px solid #333; color:#eee; padding:8px; border-radius:6px; outline:none; font-size:13px; font-family:inherit;">
-    <button id="new-cat-submit" style="width:auto; padding:8px 12px; background:#2563eb; color:#fff; border-radius:6px; font-size:13px; cursor:pointer; border:none; transition:0.2s;">Add</button>
-  `;
+  const inputEl = document.createElement("input");
+  inputEl.type = "text";
+  inputEl.id = "new-cat-input";
+  inputEl.placeholder = "Category name...";
+  inputEl.style.cssText = "flex:1; background:#121212; border:1px solid #333; color:#eee; padding:8px; border-radius:6px; outline:none; font-size:13px; font-family:inherit;";
+
+  const submitBtn = document.createElement("button");
+  submitBtn.id = "new-cat-submit";
+  submitBtn.style.cssText = "width:auto; padding:8px 12px; background:#2563eb; color:#fff; border-radius:6px; font-size:13px; cursor:pointer; border:none; transition:0.2s;";
+  submitBtn.textContent = "Add";
+
+  createCatWrapper.appendChild(inputEl);
+  createCatWrapper.appendChild(submitBtn);
+
   createCatWrapper.onclick = (e) => e.stopPropagation();
 
-  const submitBtn = createCatWrapper.querySelector("#new-cat-submit");
-  const inputEl = createCatWrapper.querySelector("#new-cat-input");
+  ['keydown', 'keyup', 'keypress'].forEach(evt => {
+    inputEl.addEventListener(evt, (e) => e.stopPropagation());
+  });
 
   const newCatBtn = document.createElement("div");
   newCatBtn.className = "custom-option";
-  newCatBtn.innerHTML = `<strong style="color: #2563eb;">+ Create New Category</strong>`;
+  const strongBtn = document.createElement("strong");
+  strongBtn.style.color = "#2563eb";
+  strongBtn.textContent = "+ Create New Category";
+  newCatBtn.appendChild(strongBtn);
 
   newCatBtn.onclick = (e) => {
     e.stopPropagation();
@@ -274,15 +357,9 @@ async function setupModalLogic(shadow, host, imgUrl, imgElement) {
     optionsMenu.classList.remove("show");
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newCatName })
-      });
-
-      if (res.ok) {
-        const createdCat = await res.json();
-        selectCategory(createdCat.name);
+      const response = await chrome.runtime.sendMessage({ action: "BG_CREATE_CATEGORY", name: newCatName });
+      if (response?.ok) {
+        selectCategory(response.data.name);
         categoryCache = null;
       } else {
         showCategoryError();
@@ -458,7 +535,10 @@ function extractSourceUrl(imgElement) {
 // LOGIC: SAVING TO BACKEND
 // =====================
 async function handleSave(btn, shadow, host, imgUrl, imgElement) {
-  if (!btn.classList.contains("active")) return;
+  if (!btn.classList.contains("active") || !btn.dataset.category) {
+    showInlineMessage("⚠️ Please select a category first!", "#EF4444");
+    return;
+  }
 
   const exists = await isImageAlreadySaved(imgUrl);
   if (exists) {
@@ -499,25 +579,18 @@ async function handleSave(btn, shadow, host, imgUrl, imgElement) {
   btn.style.background = "#4b4b4b";
 
   try {
-    const res = await fetch("http://127.0.0.1:8000/add-image", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (res.ok) {
+    const response = await chrome.runtime.sendMessage({ action: "BG_ADD_IMAGE", payload });
+    if (response?.ok) {
       markImageAsSaved(imgUrl);
       btn.innerText = "✅ Saved successfully!!";
       btn.style.background = "#10b981";
       setTimeout(() => host.remove(), 1200);
     } else {
-      const errData = await res.json().catch(() => "");
-      console.error("❌ Backend Error:", errData);
       btn.innerText = "❌ Error!";
       btn.style.background = "#EF4444";
     }
   } catch (err) {
-    console.error("📡 Fetch Error:", err);
+    chrome.runtime.sendMessage({ action: "SCAN_FOR_MORGIFILE" });
     btn.innerText = "📡 No connection!";
     btn.style.background = "#EF4444";
   }
@@ -534,10 +607,14 @@ function parseResolution(text) {
 async function loadCategories() {
   if (categoryCache) return categoryCache;
   try {
-    const res = await fetch("http://127.0.0.1:8000/categories");
-    const data = await res.json();
-    categoryCache = data.categories;
+    const response = await chrome.runtime.sendMessage({ action: "BG_GET_CATEGORIES" });
+    if (response?.ok) {
+      categoryCache = response.data.categories;
+    } else {
+      throw new Error("BG fetch failed");
+    }
   } catch {
+    chrome.runtime.sendMessage({ action: "SCAN_FOR_MORGIFILE" });
     categoryCache = [{ name: "Fallback", isSystem: false }];
   }
   return categoryCache;
@@ -552,17 +629,16 @@ async function isImageAlreadySaved(url) {
   if (!list.includes(safeurl)) return false;
 
   try {
-    const res = await fetch(`http://127.0.0.1:8000/check-image?url=${encodeURIComponent(url)}`);
-    if (!res.ok) throw new Error();
-    const data = await res.json();
-
-    if (!data.exists) {
+    const response = await chrome.runtime.sendMessage({ action: "BG_CHECK_IMAGE", url });
+    if (!response?.ok) throw new Error();
+    if (!response.data.exists) {
       const updated = list.filter((u) => u !== safeurl);
       chrome.storage.local.set({ savedImages: updated });
       return false;
     }
     return true;
   } catch {
+    chrome.runtime.sendMessage({ action: "SCAN_FOR_MORGIFILE" });
     return true;
   }
 }

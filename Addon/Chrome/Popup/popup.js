@@ -45,7 +45,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const tab = await getActiveTab();
   
-  if (!tab || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('about:') || tab.url.startsWith('moz-extension://')) {
+  if (!tab || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('about:') || tab.url.startsWith('moz-extension://')) {
     elements.siteName.textContent = "System Page";
     elements.statusLabel.textContent = "DISABLED";
     elements.toggleBtn.disabled = true;

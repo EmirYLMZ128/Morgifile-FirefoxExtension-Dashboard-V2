@@ -1,5 +1,8 @@
 import { reactive, computed } from 'vue';
 
+export const BASE_URL = window.location.port === '5173' ? 'http://127.0.0.1:8000' : window.location.origin;
+const WS_BASE_URL = window.location.port === '5173' ? 'ws://127.0.0.1:8000' : `ws://${window.location.host}`;
+
 export const store = reactive({
   images: [],
   categories: [],
@@ -50,7 +53,7 @@ export const filteredImages = computed(() => {
 let ws = null;
 
 export function connectWebSocket() {
-  const wsUrl = `ws://127.0.0.1:8000/ws`;
+  const wsUrl = `${WS_BASE_URL}/ws`;
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
@@ -93,7 +96,7 @@ export function connectWebSocket() {
 
 export async function fetchImages() {
   try {
-    const res = await fetch('http://127.0.0.1:8000/images');
+    const res = await fetch(`${BASE_URL}/images`);
     const data = await res.json();
     store.images = data;
   } catch (err) {
@@ -103,7 +106,7 @@ export async function fetchImages() {
 
 export async function fetchCategories() {
   try {
-    const res = await fetch('http://127.0.0.1:8000/categories');
+    const res = await fetch(`${BASE_URL}/categories`);
     const data = await res.json();
     if (data && data.categories) {
       const cats = data.categories.map(c => c.name);
